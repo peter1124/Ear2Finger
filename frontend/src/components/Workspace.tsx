@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import ImportModal from './ImportModal'
 
@@ -31,9 +31,9 @@ interface Sentence {
 export default function Workspace() {
   const navigate = useNavigate()
   const audioRef = useRef<HTMLAudioElement>(null)
-  const intervalTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const intervalTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const repeatCountRef = useRef(0)
-  
+
   const [playlists, setPlaylists] = useState<Playlist[]>([])
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<number | null>(null)
   const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null)
@@ -46,7 +46,7 @@ export default function Workspace() {
   const [interval, setInterval] = useState(3)
   const [ignorePunctuation, setIgnorePunctuation] = useState(true)
   const [ignoreCase, setIgnoreCase] = useState(true)
-  const [repeatCount, setRepeatCount] = useState(3)
+  const [repeatCount, setRepeatCount] = useState<number | '∞'>(3)
   const [userInput, setUserInput] = useState('')
   const [scores, setScores] = useState({ correct: 22, partial: 1, incorrect: 1 })
   const [playbackMode, setPlaybackMode] = useState<'continuous' | 'sentence'>('sentence')
@@ -84,7 +84,7 @@ export default function Workspace() {
 
   const fetchLessons = async () => {
     if (!selectedPlaylistId) return
-    
+
     try {
       const response = await axios.get(`http://localhost:8000/api/playlists/${selectedPlaylistId}/videos`)
       const videos = response.data.map((item: any) => ({
@@ -166,12 +166,14 @@ export default function Workspace() {
 
     const checkSentenceEnd = () => {
       if (!isPlaying) return
-      
+
       if (audio.currentTime >= currentSentence.end_time) {
         audio.pause()
-        
+
         // Check if we need to repeat
-        if (repeatCountRef.current < repeatCount - 1) {
+        const shouldRepeat = repeatCount === '∞' || (typeof repeatCount === 'number' && repeatCountRef.current < repeatCount - 1)
+
+        if (shouldRepeat) {
           repeatCountRef.current++
           // Repeat current sentence
           audio.currentTime = currentSentence.start_time
@@ -186,7 +188,7 @@ export default function Workspace() {
           if (intervalTimeoutRef.current) {
             clearTimeout(intervalTimeoutRef.current)
           }
-          
+
           intervalTimeoutRef.current = setTimeout(() => {
             if (currentSentenceIndex < sentences.length - 1) {
               const nextIndex = currentSentenceIndex + 1
@@ -287,7 +289,7 @@ export default function Workspace() {
             </svg>
             Workspace
           </button>
-          <button 
+          <button
             onClick={() => navigate('/dashboard')}
             className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-2"
           >
@@ -296,7 +298,7 @@ export default function Workspace() {
             </svg>
             Dashboard
           </button>
-          <button 
+          <button
             onClick={() => navigate('/settings')}
             className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-2"
           >
@@ -340,7 +342,7 @@ export default function Workspace() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          <div className="flex-1 overflow-y-auto p-3 space-y-2">
             {lessons.map((lesson) => (
               <div
                 key={lesson.id}
@@ -351,8 +353,8 @@ export default function Workspace() {
                     : 'bg-white hover:bg-gray-100'
                 }`}
               >
-                <div className="flex items-start justify-between mb-2">
-                  <h3 className={`font-medium ${selectedLesson?.id === lesson.id ? 'text-white' : 'text-gray-900'}`}>
+                <div className="flex items-start justify-between mb-1">
+                  <h3 className={`font-small ${selectedLesson?.id === lesson.id ? 'text-white' : 'text-gray-900'}`}>
                     {lesson.title}
                   </h3>
                   {lesson.is_favorite && (
@@ -361,7 +363,7 @@ export default function Workspace() {
                     </svg>
                   )}
                 </div>
-                <div className={`text-sm ${selectedLesson?.id === lesson.id ? 'text-gray-300' : 'text-gray-600'}`}>
+                <div className={`text-xs ${selectedLesson?.id === lesson.id ? 'text-gray-300' : 'text-gray-600'}`}>
                   Duration: {formatDuration(lesson.duration)} Sentences: {lesson.sentence_count}
                 </div>
               </div>
@@ -369,7 +371,7 @@ export default function Workspace() {
           </div>
 
           <div className="p-4 border-t border-gray-200">
-            <button 
+            <button
               onClick={() => setIsImportModalOpen(true)}
               className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
             >
@@ -384,8 +386,8 @@ export default function Workspace() {
           <div className="p-4 border-b border-gray-200 bg-white">
             <div className="mb-4">
               <h1 className="text-xl font-semibold text-gray-900">
-                {selectedLesson?.title || 'Select a lesson'} 
-                {selectedLesson && <span className="text-gray-500 ml-2 text-base">✨ Simplified</span>}
+                {selectedLesson?.title || 'Select a lesson'}
+                {selectedLesson && <span className="text-gray-500 ml-2 text-base"></span>}
               </h1>
             </div>
 
@@ -409,7 +411,7 @@ export default function Workspace() {
             <div className="flex items-center gap-4 mb-4">
               {/* Media Player */}
               <div className="flex-1 flex items-center gap-4">
-                <button 
+                <button
                   onClick={() => {
                     if (currentSentenceIndex > 0) {
                       setCurrentSentenceIndex(currentSentenceIndex - 1)
@@ -426,7 +428,7 @@ export default function Workspace() {
                     <path d="M8.445 14.832A1 1 0 0010 14v-2.798l5.445 3.63A1 1 0 0017 14V6a1 1 0 00-1.555-.832L10 8.798V6a1 1 0 00-1.555-.832l-6 4a1 1 0 000 1.664l6 4z" />
                   </svg>
                 </button>
-                <button 
+                <button
                   onClick={() => {
                     if (!selectedLesson || !sentences.length) return
                     setIsPlaying(!isPlaying)
@@ -444,7 +446,7 @@ export default function Workspace() {
                     </svg>
                   )}
                 </button>
-                <button 
+                <button
                   onClick={() => {
                     if (currentSentenceIndex < sentences.length - 1) {
                       setCurrentSentenceIndex(currentSentenceIndex + 1)
@@ -462,7 +464,7 @@ export default function Workspace() {
                   </svg>
                 </button>
                 <div className="flex-1 flex items-center gap-2">
-                  <div 
+                  <div
                     className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden cursor-pointer"
                     onClick={(e) => {
                       if (!audioRef.current || !totalDuration) return
@@ -471,7 +473,7 @@ export default function Workspace() {
                       const newTime = percent * totalDuration
                       audioRef.current.currentTime = newTime
                       setCurrentTime(newTime)
-                      
+
                       // Find the sentence that corresponds to this time
                       const sentenceIndex = sentences.findIndex(
                         s => newTime >= s.start_time && newTime <= s.end_time
@@ -482,7 +484,7 @@ export default function Workspace() {
                       }
                     }}
                   >
-                    <div 
+                    <div
                       className="h-full bg-indigo-600 transition-all"
                       style={{ width: `${totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0}%` }}
                     />
@@ -497,8 +499,8 @@ export default function Workspace() {
             {/* Controls */}
             <div className="flex items-center gap-3">
               <div className="relative group">
-                <div className="bg-gray-900 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 text-sm cursor-pointer">
-                  <span>Speed: {playbackSpeed}X</span>
+                <div className="bg-gray-900 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 text-xs cursor-pointer">
+                  <span>Speed: {playbackSpeed}x</span>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
@@ -508,38 +510,59 @@ export default function Workspace() {
                     <button
                       key={speed}
                       onClick={() => setPlaybackSpeed(speed)}
-                      className={`w-full text-left px-4 py-2 hover:bg-gray-100 ${
+                      className={`w-full text-left px-4 py-2 text-xs hover:bg-gray-100 ${
                         playbackSpeed === speed ? 'bg-gray-100 font-semibold' : ''
                       }`}
                     >
-                      {speed}X
+                      {speed}x
                     </button>
                   ))}
                 </div>
               </div>
               <div className="relative group">
-                <div className="bg-gray-900 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 text-sm cursor-pointer">
-                  <span>Interval: {interval}sec</span>
+                <div className="bg-gray-900 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 text-xs cursor-pointer">
+                  <span>Repeat: {repeatCount === '∞' ? '∞' : repeatCount}</span>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 min-w-[100px]">
+                  {([0, 1, 3, 5, 10, '∞'] as const).map((count) => (
+                    <button
+                      key={String(count)}
+                      onClick={() => setRepeatCount(count === '∞' ? '∞' : count)}
+                      className={`w-full text-left px-4 py-2 text-xs hover:bg-gray-100 ${
+                        repeatCount === count ? 'bg-gray-100 font-semibold' : ''
+                      }`}
+                    >
+                      {count === '∞' ? '∞' : count}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="relative group">
+                <div className="bg-gray-900 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 text-xs cursor-pointer">
+                  <span>Interval: {interval} sec</span>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </div>
                 <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 min-w-[120px]">
-                  {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((sec) => (
+                  {[0, 3, 5, 10].map((sec) => (
                     <button
                       key={sec}
                       onClick={() => setInterval(sec)}
-                      className={`w-full text-left px-4 py-2 hover:bg-gray-100 ${
+                      className={`w-full text-left px-4 py-2 text-xs hover:bg-gray-100 ${
                         interval === sec ? 'bg-gray-100 font-semibold' : ''
                       }`}
                     >
-                      {sec}sec
+                      {sec} sec
                     </button>
                   ))}
                 </div>
               </div>
               <div className="relative group">
-                <div className="bg-gray-900 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 text-sm cursor-pointer">
+                <div className="bg-gray-900 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 text-xs cursor-pointer">
                   <span>Ignore punct.: {ignorePunctuation ? 'Yes' : 'No'}</span>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -548,7 +571,7 @@ export default function Workspace() {
                 <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 min-w-[100px]">
                   <button
                     onClick={() => setIgnorePunctuation(true)}
-                    className={`w-full text-left px-4 py-2 hover:bg-gray-100 ${
+                    className={`w-full text-left px-4 py-2 text-xs hover:bg-gray-100 ${
                       ignorePunctuation ? 'bg-gray-100 font-semibold' : ''
                     }`}
                   >
@@ -556,7 +579,7 @@ export default function Workspace() {
                   </button>
                   <button
                     onClick={() => setIgnorePunctuation(false)}
-                    className={`w-full text-left px-4 py-2 hover:bg-gray-100 ${
+                    className={`w-full text-left px-4 py-2 text-xs hover:bg-gray-100 ${
                       !ignorePunctuation ? 'bg-gray-100 font-semibold' : ''
                     }`}
                   >
@@ -565,7 +588,7 @@ export default function Workspace() {
                 </div>
               </div>
               <div className="relative group">
-                <div className="bg-gray-900 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 text-sm cursor-pointer">
+                <div className="bg-gray-900 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 text-xs cursor-pointer">
                   <span>Ignore case: {ignoreCase ? 'Yes' : 'No'}</span>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -574,7 +597,7 @@ export default function Workspace() {
                 <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 min-w-[100px]">
                   <button
                     onClick={() => setIgnoreCase(true)}
-                    className={`w-full text-left px-4 py-2 hover:bg-gray-100 ${
+                    className={`w-full text-left px-4 py-2 text-xs hover:bg-gray-100 ${
                       ignoreCase ? 'bg-gray-100 font-semibold' : ''
                     }`}
                   >
@@ -582,7 +605,7 @@ export default function Workspace() {
                   </button>
                   <button
                     onClick={() => setIgnoreCase(false)}
-                    className={`w-full text-left px-4 py-2 hover:bg-gray-100 ${
+                    className={`w-full text-left px-4 py-2 text-xs hover:bg-gray-100 ${
                       !ignoreCase ? 'bg-gray-100 font-semibold' : ''
                     }`}
                   >
@@ -590,27 +613,7 @@ export default function Workspace() {
                   </button>
                 </div>
               </div>
-              <div className="relative group">
-                <div className="bg-gray-900 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 text-sm cursor-pointer">
-                  <span>Repeat: {repeatCount}</span>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </div>
-                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 min-w-[100px]">
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((count) => (
-                    <button
-                      key={count}
-                      onClick={() => setRepeatCount(count)}
-                      className={`w-full text-left px-4 py-2 hover:bg-gray-100 ${
-                        repeatCount === count ? 'bg-gray-100 font-semibold' : ''
-                      }`}
-                    >
-                      {count}
-                    </button>
-                  ))}
-                </div>
-              </div>
+
               <div className="flex items-center gap-2 ml-auto">
                 <div className="flex items-center gap-1">
                   <div className="w-3 h-3 bg-green-500 rounded-full"></div>
@@ -638,7 +641,7 @@ export default function Workspace() {
                     // For now, showing a mix of correct, partial, and incorrect for demonstration
                     const wordStatus = idx % 10
                     let underlineClass = 'border-b-2 border-gray-300'
-                    
+
                     if (wordStatus < 7) {
                       underlineClass = 'border-b-2 border-green-500' // Correct
                     } else if (wordStatus < 9) {
@@ -646,7 +649,7 @@ export default function Workspace() {
                     } else {
                       underlineClass = 'border-b-2 border-red-500' // Incorrect
                     }
-                    
+
                     return (
                       <span key={idx} className={underlineClass}>
                         {word}{' '}
@@ -660,28 +663,6 @@ export default function Workspace() {
                 Select a lesson to start practicing
               </div>
             )}
-          </div>
-
-          {/* Bottom Panel */}
-          <div className="p-4 border-t border-gray-200 bg-white grid grid-cols-2 gap-4">
-            <div>
-              <input
-                type="text"
-                placeholder="Talk to AI"
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              />
-            </div>
-            <div className="bg-gray-50 rounded-lg p-4">
-              <div className="h-32 flex items-end gap-2">
-                {[20, 35, 25, 45, 30, 40, 28, 32, 38, 42].map((height, idx) => (
-                  <div
-                    key={idx}
-                    className="flex-1 bg-gray-400 rounded-t"
-                    style={{ height: `${height}%` }}
-                  />
-                ))}
-              </div>
-            </div>
           </div>
         </main>
       </div>
