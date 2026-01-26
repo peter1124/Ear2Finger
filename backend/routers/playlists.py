@@ -1,0 +1,203 @@
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+from typing import List, Optional
+from database import get_db, Playlist, Video, PlaylistVideo, Sentence
+from datetime import datetime
+
+router = APIRouter()
+
+
+class PlaylistCreate(BaseModel):
+    name: str
+
+
+class PlaylistResponse(BaseModel):
+    id: int
+    name: str
+    created_at: str
+    video_count: int
+
+    class Config:
+        from_attributes = True
+
+
+class PlaylistVideoResponse(BaseModel):
+    id: int
+    video_id: int
+    title: Optional[str]
+    duration: Optional[float]
+    sentence_count: int
+    audio_file_path: Optional[str]
+    order: int
+
+    class Config:
+        from_attributes = True
+
+
+@router.post("/playlists", response_model=PlaylistResponse)
+async def create_playlist(
+    playlist: PlaylistCreate,
+    db: Session = Depends(get_db)
+):
+    """Create a new playlist"""
+    new_playlist = Playlist(name=playlist.name)
+    db.add(new_playlist)
+    db.commit()
+    db.refresh(new_playlist)
+    
+    return {
+        'id': new_playlist.id,
+        'name': new_playlist.name,
+        'created_at': new_playlist.created_at.isoformat() if new_playlist.created_at else None,
+        'video_count': 0
+    }
+
+
+@router.get("/playlists", response_model=List[PlaylistResponse])
+async def get_playlists(
+    db: Session = Depends(get_db)
+):
+    """Get all playlists"""
+    playlists = db.query(Playlist).all()
+    result = []
+    for playlist in playlists:
+        video_count = db.query(PlaylistVideo).filter(PlaylistVideo.playlist_id == playlist.id).count()
+        result.append({
+            'id': playlist.id,
+            'name': playlist.name,
+            'created_at': playlist.created_at.isoformat() if playlist.created_at else None,
+            'video_count': video_count
+        })
+    return result
+
+
+@router.get("/playlists/{playlist_id}", response_model=PlaylistResponse)
+async def get_playlist(
+    playlist_id: int,
+    db: Session = Depends(get_db)
+):
+    """Get a specific playlist"""
+    playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    
+    video_count = db.query(PlaylistVideo).filter(PlaylistVideo.playlist_id == playlist.id).count()
+    return {
+        'id': playlist.id,
+        'name': playlist.name,
+        'created_at': playlist.created_at.isoformat() if playlist.created_at else None,
+        'video_count': video_count
+    }
+
+
+@router.get("/playlists/{playlist_id}/videos", response_model=List[PlaylistVideoResponse])
+async def get_playlist_videos(
+    playlist_id: int,
+    db: Session = Depends(get_db)
+):
+    """Get videos in a playlist"""
+    playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    
+    playlist_videos = db.query(PlaylistVideo).filter(
+        PlaylistVideo.playlist_id == playlist_id
+    ).order_by(PlaylistVideo.order).all()
+    
+    from database import Sentence
+    result = []
+    for pv in playlist_videos:
+        video = db.query(Video).filter(Video.id == pv.video_id).first()
+        if video:
+            sentence_count = db.query(Sentence).filter(Sentence.video_id == video.id).count()
+            result.append({
+                'id': pv.id,
+                'video_id': video.id,
+                'title': video.title,
+                'duration': video.duration,
+                'sentence_count': sentence_count,
+                'audio_file_path': video.audio_file_path,
+                'order': pv.order
+            })
+    
+    return result
+
+
+@router.post("/playlists/{playlist_id}/videos/{video_id}")
+async def add_video_to_playlist(
+    playlist_id: int,
+    video_id: int,
+    db: Session = Depends(get_db)
+):
+    """Add a video to a playlist"""
+    playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    
+    video = db.query(Video).filter(Video.id == video_id).first()
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    
+    # Check if video is already in playlist
+    existing = db.query(PlaylistVideo).filter(
+        PlaylistVideo.playlist_id == playlist_id,
+        PlaylistVideo.video_id == video_id
+    ).first()
+    
+    if existing:
+        raise HTTPException(status_code=400, detail="Video already in playlist")
+    
+    # Get max order for this playlist
+    max_order = db.query(PlaylistVideo).filter(
+        PlaylistVideo.playlist_id == playlist_id
+    ).order_by(PlaylistVideo.order.desc()).first()
+    
+    new_order = (max_order.order + 1) if max_order else 0
+    
+    playlist_video = PlaylistVideo(
+        playlist_id=playlist_id,
+        video_id=video_id,
+        order=new_order
+    )
+    db.add(playlist_video)
+    db.commit()
+    
+    return {"message": "Video added to playlist successfully"}
+
+
+@router.delete("/playlists/{playlist_id}/videos/{video_id}")
+async def remove_video_from_playlist(
+    playlist_id: int,
+    video_id: int,
+    db: Session = Depends(get_db)
+):
+    """Remove a video from a playlist"""
+    playlist_video = db.query(PlaylistVideo).filter(
+        PlaylistVideo.playlist_id == playlist_id,
+        PlaylistVideo.video_id == video_id
+    ).first()
+    
+    if not playlist_video:
+        raise HTTPException(status_code=404, detail="Video not found in playlist")
+    
+    db.delete(playlist_video)
+    db.commit()
+    
+    return {"message": "Video removed from playlist successfully"}
+
+
+@router.delete("/playlists/{playlist_id}")
+async def delete_playlist(
+    playlist_id: int,
+    db: Session = Depends(get_db)
+):
+    """Delete a playlist"""
+    playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    
+    db.delete(playlist)
+    db.commit()
+    
+    return {"message": "Playlist deleted successfully"}

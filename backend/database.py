@@ -20,6 +20,17 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
+class Playlist(Base):
+    __tablename__ = "playlists"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    videos = relationship("PlaylistVideo", back_populates="playlist", cascade="all, delete-orphan")
+
+
 class Video(Base):
     __tablename__ = "videos"
 
@@ -32,6 +43,21 @@ class Video(Base):
     
     # Relationships
     sentences = relationship("Sentence", back_populates="video", cascade="all, delete-orphan")
+    playlist_videos = relationship("PlaylistVideo", back_populates="video", cascade="all, delete-orphan")
+
+
+class PlaylistVideo(Base):
+    __tablename__ = "playlist_videos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    playlist_id = Column(Integer, ForeignKey("playlists.id"), nullable=False)
+    video_id = Column(Integer, ForeignKey("videos.id"), nullable=False)
+    order = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    # Relationships
+    playlist = relationship("Playlist", back_populates="videos")
+    video = relationship("Video", back_populates="playlist_videos")
 
 
 class Sentence(Base):

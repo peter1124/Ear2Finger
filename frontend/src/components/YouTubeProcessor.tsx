@@ -115,7 +115,7 @@ export default function YouTubeProcessor() {
     <div className="space-y-6">
       {/* YouTube URL Input Form */}
       <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6">
-        <h2 className="text-2xl font-semibold text-gray-800 dark:text-white mb-4">
+        <h2 className="text-xl font-semibold text-gray-800 dark:text-white mb-4">
           Process YouTube Video
         </h2>
         <p className="text-gray-600 dark:text-gray-400 mb-6">
@@ -237,7 +237,7 @@ export default function YouTubeProcessor() {
       {/* Sentences Display */}
       {selectedVideo && (
         <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6">
-          <h2 className="text-2xl font-semibold text-gray-800 dark:text-white mb-4">
+          <h2 className="text-xl font-semibold text-gray-800 dark:text-white mb-4">
             Sentences from: {selectedVideo.title || 'Untitled Video'}
           </h2>
 
