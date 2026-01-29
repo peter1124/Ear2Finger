@@ -32,6 +32,7 @@ export default function ImportModal({ isOpen, onClose, onSuccess, defaultPlaylis
       setSelectedPlaylistId(defaultPlaylistId || null)
       setNewPlaylistName('')
       setError(null)
+      setIsProcessing(false)
       setStep('input')
     }
   }, [isOpen, defaultPlaylistId])
@@ -87,14 +88,14 @@ export default function ImportModal({ isOpen, onClose, onSuccess, defaultPlaylis
     setStep('processing')
 
     try {
-      // Step 1: Process the YouTube video
+      // Process the YouTube video
       const processResponse = await axios.post('http://localhost:8000/api/youtube/process', {
         url: youtubeUrl.trim()
       })
 
       const videoId = processResponse.data.video_id
 
-      // Step 2: Add video to playlist
+      // Add video to playlist
       await axios.post(`http://localhost:8000/api/playlists/${selectedPlaylistId}/videos/${videoId}`)
 
       setStep('success')

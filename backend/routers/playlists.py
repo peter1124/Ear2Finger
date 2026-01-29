@@ -40,12 +40,29 @@ async def create_playlist(
     playlist: PlaylistCreate,
     db: Session = Depends(get_db)
 ):
-    """Create a new playlist"""
+    """Create a new playlist.
+
+    If a playlist with the same name already exists, return that instead of
+    creating a duplicate. This makes playlist creation idempotent by name.
+    """
+    # Check for existing playlist with the same name
+    existing = db.query(Playlist).filter(Playlist.name == playlist.name).first()
+    if existing:
+        video_count = db.query(PlaylistVideo).filter(
+            PlaylistVideo.playlist_id == existing.id
+        ).count()
+        return {
+            'id': existing.id,
+            'name': existing.name,
+            'created_at': existing.created_at.isoformat() if existing.created_at else None,
+            'video_count': video_count
+        }
+
     new_playlist = Playlist(name=playlist.name)
     db.add(new_playlist)
     db.commit()
     db.refresh(new_playlist)
-    
+
     return {
         'id': new_playlist.id,
         'name': new_playlist.name,
@@ -81,7 +98,7 @@ async def get_playlist(
     playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
-    
+
     video_count = db.query(PlaylistVideo).filter(PlaylistVideo.playlist_id == playlist.id).count()
     return {
         'id': playlist.id,
@@ -100,11 +117,11 @@ async def get_playlist_videos(
     playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
-    
+
     playlist_videos = db.query(PlaylistVideo).filter(
         PlaylistVideo.playlist_id == playlist_id
     ).order_by(PlaylistVideo.order).all()
-    
+
     from database import Sentence
     result = []
     for pv in playlist_videos:
@@ -120,7 +137,7 @@ async def get_playlist_videos(
                 'audio_file_path': video.audio_file_path,
                 'order': pv.order
             })
-    
+
     return result
 
 
@@ -134,27 +151,27 @@ async def add_video_to_playlist(
     playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
-    
+
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
-    
+
     # Check if video is already in playlist
     existing = db.query(PlaylistVideo).filter(
         PlaylistVideo.playlist_id == playlist_id,
         PlaylistVideo.video_id == video_id
     ).first()
-    
+
     if existing:
         raise HTTPException(status_code=400, detail="Video already in playlist")
-    
+
     # Get max order for this playlist
     max_order = db.query(PlaylistVideo).filter(
         PlaylistVideo.playlist_id == playlist_id
     ).order_by(PlaylistVideo.order.desc()).first()
-    
+
     new_order = (max_order.order + 1) if max_order else 0
-    
+
     playlist_video = PlaylistVideo(
         playlist_id=playlist_id,
         video_id=video_id,
@@ -162,7 +179,7 @@ async def add_video_to_playlist(
     )
     db.add(playlist_video)
     db.commit()
-    
+
     return {"message": "Video added to playlist successfully"}
 
 
@@ -177,13 +194,13 @@ async def remove_video_from_playlist(
         PlaylistVideo.playlist_id == playlist_id,
         PlaylistVideo.video_id == video_id
     ).first()
-    
+
     if not playlist_video:
         raise HTTPException(status_code=404, detail="Video not found in playlist")
-    
+
     db.delete(playlist_video)
     db.commit()
-    
+
     return {"message": "Video removed from playlist successfully"}
 
 
@@ -196,8 +213,8 @@ async def delete_playlist(
     playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
-    
+
     db.delete(playlist)
     db.commit()
-    
+
     return {"message": "Playlist deleted successfully"}
