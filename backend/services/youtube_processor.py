@@ -9,16 +9,16 @@ from sqlalchemy.orm import Session
 from database import Video, Sentence
 import os
 
-# Download NLTK data if not already present
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt', quiet=True)
+# Download NLTK data if not already present (find() raises LookupError or OSError when missing)
+def _ensure_nltk_data(resource: str, package: str) -> None:
+    try:
+        nltk.data.find(resource)
+    except (LookupError, OSError):
+        nltk.download(package, quiet=True)
 
-try:
-    nltk.data.find('tokenizers/punkt_tab')
-except LookupError:
-    nltk.download('punkt_tab', quiet=True)
+
+_ensure_nltk_data('tokenizers/punkt', 'punkt')
+_ensure_nltk_data('tokenizers/punkt_tab', 'punkt_tab')
 
 
 class YouTubeProcessor:
