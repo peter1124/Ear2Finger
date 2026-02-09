@@ -1,6 +1,5 @@
 import yt_dlp
 import re
-import nltk
 import subprocess
 import tempfile
 import shutil
@@ -8,18 +7,6 @@ from typing import List, Dict, Optional
 from sqlalchemy.orm import Session
 from database import Video, Sentence
 import os
-
-# Download NLTK data if not already present (find() raises LookupError or OSError when missing)
-def _ensure_nltk_data(resource: str, package: str) -> None:
-    try:
-        nltk.data.find(resource)
-    except (LookupError, OSError):
-        nltk.download(package, quiet=True)
-
-
-_ensure_nltk_data('tokenizers/punkt', 'punkt')
-_ensure_nltk_data('tokenizers/punkt_tab', 'punkt_tab')
-
 
 class YouTubeProcessor:
     def __init__(self, download_dir: str = None, audio_dir: str = None):
@@ -29,7 +16,7 @@ class YouTubeProcessor:
         self.audio_dir = audio_dir or os.path.join(backend_dir, "audio")
         os.makedirs(self.download_dir, exist_ok=True)
         os.makedirs(self.audio_dir, exist_ok=True)
-    
+
     def extract_video_info(self, youtube_url: str, video_id: str = None) -> Dict:
         """Extract video information, subtitles, and download MP3 audio using yt-dlp"""
         # First, get video info without downloading
@@ -37,19 +24,19 @@ class YouTubeProcessor:
             'quiet': True,
             'no_warnings': True,
         }
-        
+
         try:
             with yt_dlp.YoutubeDL(ydl_opts_info) as ydl:
                 info = ydl.extract_info(youtube_url, download=False)
                 video_id = video_id or info.get('id', 'unknown')
                 video_title = info.get('title', 'Unknown')
-                
+
                 # Sanitize filename
                 safe_title = "".join(c for c in video_title if c.isalnum() or c in (' ', '-', '_')).rstrip()
                 safe_title = safe_title[:100]  # Limit length
                 audio_filename = f"{video_id}_{safe_title}.mp3"
                 audio_file_path = os.path.join(self.audio_dir, audio_filename)
-                
+
                 # Download subtitles using command-line yt-dlp
                 # First try manual subtitles, then auto-generated subtitles
                 subtitles_data = None
@@ -68,14 +55,14 @@ class YouTubeProcessor:
                             '--quiet',
                             youtube_url
                         ]
-                        
+
                         result_manual = subprocess.run(
                             cmd_manual,
                             capture_output=True,
                             text=True,
                             timeout=60
                         )
-                        
+
                         if result_manual.returncode == 0:
                             # Look for downloaded SRT subtitle files
                             for file in os.listdir(tmpdir):
@@ -89,7 +76,7 @@ class YouTubeProcessor:
                                     subtitle_path = os.path.join(tmpdir, file)
                                     with open(subtitle_path, 'r', encoding='utf-8') as f:
                                         subtitles_data = f.read()
-                        
+
                         # Method 2: If manual subtitles failed, try auto-generated subtitles
                         # Command: yt-dlp --write-auto-subs --sub-lang en --sub-format srt --convert-subs srt --skip-download <URL>
                         if not subtitles_data:
@@ -104,14 +91,14 @@ class YouTubeProcessor:
                                 '--quiet',
                                 youtube_url
                             ]
-                            
+
                             result_auto = subprocess.run(
                                 cmd_auto,
                                 capture_output=True,
                                 text=True,
                                 timeout=60
                             )
-                            
+
                             if result_auto.returncode == 0:
                                 # Look for downloaded SRT subtitle files
                                 for file in os.listdir(tmpdir):
@@ -135,7 +122,7 @@ class YouTubeProcessor:
                         print(f"Warning: Failed to download subtitles via command-line: {str(e)}")
                         # Fallback to Python API method
                         subtitles_data = self._extract_subtitles_via_api(ydl, info)
-                
+
                 # Download MP3 audio file using command-line: yt-dlp -x --audio-format mp3 <URL>
                 audio_downloaded = False
                 if not os.path.exists(audio_file_path):
@@ -152,14 +139,14 @@ class YouTubeProcessor:
                             '--quiet',
                             youtube_url
                         ]
-                        
+
                         result = subprocess.run(
                             cmd,
                             capture_output=True,
                             text=True,
                             timeout=300  # 5 minute timeout for audio download
                         )
-                        
+
                         if result.returncode == 0:
                             # Find the downloaded MP3 file
                             for file in os.listdir(self.audio_dir):
@@ -188,7 +175,7 @@ class YouTubeProcessor:
                 else:
                     # Audio file already exists
                     audio_downloaded = True
-                
+
                 return {
                     'title': video_title,
                     'duration': info.get('duration', 0),
@@ -198,11 +185,11 @@ class YouTubeProcessor:
                 }
         except Exception as e:
             raise Exception(f"Failed to extract video info: {str(e)}")
-    
+
     def _extract_subtitles_via_api(self, ydl, info) -> Optional[str]:
         """Fallback method to extract subtitles using Python API"""
         subtitles_data = None
-        
+
         # Method 1: Try manual subtitles first
         if 'subtitles' in info and info['subtitles']:
             for lang_code, subtitle_list in info['subtitles'].items():
@@ -215,7 +202,7 @@ class YouTubeProcessor:
                                 break
                             except:
                                 continue
-        
+
         # Method 2: Try automatic captions if manual subtitles not found
         if not subtitles_data and 'automatic_captions' in info and info['automatic_captions']:
             for lang_code, caption_list in info['automatic_captions'].items():
@@ -228,51 +215,51 @@ class YouTubeProcessor:
                                 break
                             except:
                                 continue
-        
+
         return subtitles_data
-    
+
     def parse_subtitles(self, subtitle_content: str) -> List[Dict]:
         """Parse subtitle content (SRT or VTT format) into timestamped segments"""
         if not subtitle_content:
             return []
-        
+
         # Detect format by checking first few lines
         first_lines = subtitle_content.strip().split('\n')[:5]
         is_srt = any(line.strip().isdigit() for line in first_lines if line.strip())
-        
+
         if is_srt:
             return self._parse_srt_subtitles(subtitle_content)
         else:
             return self._parse_vtt_subtitles(subtitle_content)
-    
+
     def _parse_srt_subtitles(self, srt_content: str) -> List[Dict]:
         """Parse SRT subtitle content into timestamped segments"""
         if not srt_content:
             return []
-        
+
         segments = []
         lines = srt_content.split('\n')
         i = 0
-        
+
         while i < len(lines):
             line = lines[i].strip()
-            
+
             # Skip empty lines
             if not line:
                 i += 1
                 continue
-            
+
             # Check if this is a sequence number (SRT format starts with number)
             if line.isdigit():
                 i += 1
                 if i >= len(lines):
                     break
-                
+
                 # Next line should be the timestamp
                 timestamp_line = lines[i].strip()
                 # SRT format: 00:00:00,000 --> 00:00:00,000 (comma for milliseconds)
                 timestamp_match = re.match(r'(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})', timestamp_line)
-                
+
                 if timestamp_match:
                     # Convert timestamp to seconds
                     start_seconds = (
@@ -287,14 +274,14 @@ class YouTubeProcessor:
                         int(timestamp_match.group(7)) +
                         int(timestamp_match.group(8)) / 1000
                     )
-                    
+
                     i += 1
                     # Collect text lines until empty line
                     text_lines = []
                     while i < len(lines) and lines[i].strip():
                         text_lines.append(lines[i].strip())
                         i += 1
-                    
+
                     if text_lines:
                         segments.append({
                             'start_time': start_seconds,
@@ -305,25 +292,25 @@ class YouTubeProcessor:
                     i += 1
             else:
                 i += 1
-        
+
         return segments
-    
+
     def _parse_vtt_subtitles(self, vtt_content: str) -> List[Dict]:
         """Parse WebVTT subtitle content into timestamped segments"""
         if not vtt_content:
             return []
-        
+
         segments = []
         lines = vtt_content.split('\n')
         current_segment = None
-        
+
         for line in lines:
             line = line.strip()
-            
+
             # Skip WebVTT header and empty lines
             if not line or line.startswith('WEBVTT') or line.startswith('NOTE'):
                 continue
-            
+
             # Check for timestamp line (format: 00:00:00.000 --> 00:00:00.000)
             timestamp_match = re.match(r'(\d{2}):(\d{2}):(\d{2})\.(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})\.(\d{3})', line)
             if timestamp_match:
@@ -340,10 +327,10 @@ class YouTubeProcessor:
                     int(timestamp_match.group(7)) +
                     int(timestamp_match.group(8)) / 1000
                 )
-                
+
                 if current_segment:
                     segments.append(current_segment)
-                
+
                 current_segment = {
                     'start_time': start_seconds,
                     'end_time': end_seconds,
@@ -355,63 +342,90 @@ class YouTubeProcessor:
                     current_segment['text'] += ' ' + line
                 else:
                     current_segment['text'] = line
-        
+
         # Add last segment
         if current_segment:
             segments.append(current_segment)
-        
+
         return segments
-    
+
     def segment_into_sentences(self, segments: List[Dict]) -> List[Dict]:
-        """Segment subtitle segments into individual sentences"""
-        sentences = []
-        sentence_index = 0
-        
-        for segment in segments:
-            text = segment['text'].strip()
-            if not text:
+        """
+        Segment subtitle segments into sentences without estimating timestamps.
+
+        Rules:
+        1. All start_time / end_time values must come directly from the original
+           subtitle segments (we only reuse/merge them, never compute new times).
+        2. The resulting segments must have strictly increasing start_time values.
+           If a segment's start_time is equal to or less than the previous one,
+           merge it into the previous segment until the monotonic property holds.
+        """
+
+        # Ensure segments are processed in chronological order
+        sorted_segments = sorted(
+            (s for s in segments if s.get("text", "").strip()),
+            key=lambda s: s["start_time"],
+        )
+
+        merged_segments: List[Dict] = []
+        current: Optional[Dict] = None
+
+        for seg in sorted_segments:
+            text = seg["text"]
+            start = seg["start_time"]
+            end = seg["end_time"]
+
+            if current is None:
+                # Start a new merged segment
+                current = {
+                    "text": text,
+                    "start_time": start,
+                    "end_time": end,
+                }
                 continue
-            
-            # Use NLTK to split into sentences
-            sentence_list = nltk.sent_tokenize(text)
-            
-            # Calculate time per character for splitting
-            segment_duration = segment['end_time'] - segment['start_time']
-            total_chars = len(text)
-            
-            current_text_pos = 0
-            
-            for sentence_text in sentence_list:
-                sentence_text = sentence_text.strip()
-                if not sentence_text:
-                    continue
-                
-                # Estimate sentence timing based on character position
-                sentence_start_chars = current_text_pos
-                sentence_end_chars = current_text_pos + len(sentence_text)
-                
-                if total_chars > 0:
-                    start_ratio = sentence_start_chars / total_chars
-                    end_ratio = sentence_end_chars / total_chars
-                    
-                    sentence_start = segment['start_time'] + (segment_duration * start_ratio)
-                    sentence_end = segment['start_time'] + (segment_duration * end_ratio)
-                else:
-                    sentence_start = segment['start_time']
-                    sentence_end = segment['end_time']
-                
-                sentences.append({
-                    'sentence_text': sentence_text,
-                    'start_time': round(sentence_start, 2),
-                    'end_time': round(sentence_end, 2),
-                    'sentence_index': sentence_index
-                })
-                
-                current_text_pos = sentence_end_chars
-                sentence_index += 1
-        
+
+            current_text = current["text"]
+            current_start = current["start_time"]
+
+            # Decide whether this segment must be merged into the current one:
+            #  - if its start_time is not strictly greater than the current start_time
+            #    (enforce monotonically increasing start times), OR
+            must_merge_for_time = start <= current_start
+
+            if must_merge_for_time:
+                # Merge: keep the first start_time, extend end_time, and concatenate text
+                if text.strip():
+                    if current_text and not current_text.endswith(" "):
+                        current["text"] = current_text + " " + text.strip()
+                    else:
+                        current["text"] = (current_text + text).strip()
+                current["end_time"] = end
+            else:
+                # Finalize current and start a new one
+                merged_segments.append(current)
+                current = {
+                    "text": text,
+                    "start_time": start,
+                    "end_time": end,
+                }
+
+        if current is not None and current.get("text", "").strip():
+            merged_segments.append(current)
+
+        # Build final sentence list from merged segments, using their original times
+        sentences: List[Dict] = []
+        for idx, seg in enumerate(merged_segments):
+            sentences.append(
+                {
+                    "sentence_text": seg["text"].strip(),
+                    "start_time": float(seg["start_time"]),
+                    "end_time": float(seg["end_time"]),
+                    "sentence_index": idx,
+                }
+            )
+
         return sentences
-    
+
     def process_youtube_video(self, youtube_url: str, db: Session) -> Dict:
         """Process a YouTube video: extract, segment, and store in database"""
         # Check if video already exists
@@ -426,25 +440,24 @@ class YouTubeProcessor:
                 'sentence_count': len(sentences),
                 'message': 'Video already processed'
             }
-        
+
         # Extract video info and subtitles
         video_info = self.extract_video_info(youtube_url)
-        
+
         if not video_info.get('subtitles'):
             raise Exception("No subtitles available for this video")
-        
+
         # Parse subtitles (SRT or VTT format)
         segments = self.parse_subtitles(video_info['subtitles'])
-        
+
         if not segments:
             raise Exception("Could not parse subtitles from video")
-        
         # Segment into sentences
         sentences = self.segment_into_sentences(segments)
-        
+
         if not sentences:
             raise Exception("Could not segment subtitles into sentences")
-        
+
         # Store in database
         video = Video(
             youtube_url=youtube_url,
@@ -454,7 +467,7 @@ class YouTubeProcessor:
         )
         db.add(video)
         db.flush()  # Get video ID
-        
+
         # Store sentences
         for sentence_data in sentences:
             sentence = Sentence(
@@ -465,9 +478,9 @@ class YouTubeProcessor:
                 sentence_index=sentence_data['sentence_index']
             )
             db.add(sentence)
-        
+
         db.commit()
-        
+
         return {
             'video_id': video.id,
             'title': video.title,
