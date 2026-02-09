@@ -191,7 +191,7 @@ export default function Workspace() {
       // Decide whether to repeat this sentence or move on
       const shouldRepeat =
         repeatCount === '∞' ||
-        (typeof repeatCount === 'number' && repeatCountRef.current < repeatCount - 1)
+        (typeof repeatCount === 'number' && repeatCountRef.current <= repeatCount - 1)
 
       if (pauseInterval > 0) {
         // Simulate "click pause" at start: UI and audio show paused
