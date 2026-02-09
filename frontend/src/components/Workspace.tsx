@@ -31,8 +31,14 @@ interface Sentence {
 export default function Workspace() {
   const navigate = useNavigate()
   const audioRef = useRef<HTMLAudioElement>(null)
+  const progressBarRef = useRef<HTMLDivElement>(null)
   const intervalTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const repeatCountRef = useRef(0)
+  const skipNextSyncRef = useRef(false)
+  const soughtTimeRef = useRef<number>(0)
+  const soughtSegmentIndexRef = useRef<number | null>(null)
+  const sentenceIndexFromPlaybackRef = useRef(false)
+  const [isDraggingProgress, setIsDraggingProgress] = useState(false)
 
   const [playlists, setPlaylists] = useState<Playlist[]>([])
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<number | null>(null)
@@ -143,18 +149,35 @@ export default function Workspace() {
     }
   }, [playbackSpeed])
 
-  // Handle time updates
+  // Handle time updates: keep currentTime and subtitle in sync with audio playback
+  const totalDurationForSync = selectedLesson?.duration ?? 0
   useEffect(() => {
     const audio = audioRef.current
-    if (!audio) return
+    if (!audio || !sentences.length) return
 
     const updateTime = () => {
-      setCurrentTime(audio.currentTime)
+      if (skipNextSyncRef.current) {
+        setCurrentTime(soughtTimeRef.current)
+        return
+      }
+      const t = audio.currentTime
+      setCurrentTime(t)
+      // Sync displayed subtitle to playhead: find sentence containing current time
+      const nextIdx = sentences.findIndex((s, i) => {
+        const nextStart = i + 1 < sentences.length ? sentences[i + 1].start_time : totalDurationForSync
+        return t >= s.start_time && t < nextStart
+      })
+      const idx = nextIdx >= 0 ? nextIdx : (t < sentences[0].start_time ? 0 : sentences.length - 1)
+      setCurrentSentenceIndex((prev) => {
+        if (prev === idx) return prev
+        sentenceIndexFromPlaybackRef.current = true
+        return idx
+      })
     }
 
     audio.addEventListener('timeupdate', updateTime)
     return () => audio.removeEventListener('timeupdate', updateTime)
-  }, [])
+  }, [sentences, totalDurationForSync])
 
   // Handle sentence-by-sentence playback
   useEffect(() => {
@@ -164,10 +187,18 @@ export default function Workspace() {
     const currentSentence = sentences[currentSentenceIndex]
     if (!currentSentence) return
 
+    const totalDuration = selectedLesson?.duration ?? 0
+
     const checkSentenceEnd = () => {
       if (!isPlaying) return
+      const nextSentence = sentences[currentSentenceIndex + 1]
+      // Use start_time only: advance when we reach the next sentence's start (or end of audio for last sentence)
+      const hasReachedNext =
+        nextSentence
+          ? audio.currentTime >= nextSentence.start_time
+          : totalDuration > 0 && audio.currentTime >= totalDuration
 
-      if (audio.currentTime >= currentSentence.end_time) {
+      if (hasReachedNext) {
         audio.pause()
 
         // Check if we need to repeat
@@ -221,18 +252,28 @@ export default function Workspace() {
         clearTimeout(intervalTimeoutRef.current)
       }
     }
-  }, [currentSentenceIndex, sentences, isPlaying, interval, repeatCount, playbackMode])
+  }, [currentSentenceIndex, sentences, isPlaying, interval, repeatCount, playbackMode, selectedLesson?.duration])
 
   // Handle play/pause
   useEffect(() => {
     const audio = audioRef.current
     if (!audio || !sentences.length) return
+    if (isDraggingProgress) return
 
     if (isPlaying) {
+      // If user just sought via progress bar, use the ref so we don't depend on state timing
+      const segmentIndex = soughtSegmentIndexRef.current
+      if (segmentIndex !== null && sentences[segmentIndex]) {
+        soughtSegmentIndexRef.current = null
+        const t = sentences[segmentIndex].start_time
+        audio.currentTime = t
+        setCurrentTime(t)
+        audio.play()
+        return
+      }
       const currentSentence = sentences[currentSentenceIndex]
       if (currentSentence) {
-        // Ensure we're at the start of the current sentence
-        if (audio.currentTime < currentSentence.start_time || audio.currentTime > currentSentence.end_time) {
+        if (audio.currentTime < currentSentence.start_time) {
           audio.currentTime = currentSentence.start_time
         }
         audio.play()
@@ -240,7 +281,25 @@ export default function Workspace() {
     } else {
       audio.pause()
     }
-  }, [isPlaying, currentSentenceIndex, sentences])
+  }, [isPlaying, currentSentenceIndex, sentences, isDraggingProgress])
+
+  // Keep audio progress in sync with current subtitle: seek to current sentence's start_time when subtitle changes (e.g. prev/next). Skip when change came from playback (timeupdate) or user sought via progress bar.
+  useEffect(() => {
+    if (!audioRef.current || !sentences.length || isDraggingProgress) return
+    const sentence = sentences[currentSentenceIndex]
+    if (!sentence) return
+    if (sentenceIndexFromPlaybackRef.current) {
+      sentenceIndexFromPlaybackRef.current = false
+      return
+    }
+    if (skipNextSyncRef.current) {
+      skipNextSyncRef.current = false
+      setCurrentTime(soughtTimeRef.current)
+      return
+    }
+    audioRef.current.currentTime = sentence.start_time
+    setCurrentTime(sentence.start_time)
+  }, [currentSentenceIndex, sentences, isDraggingProgress])
 
   // Reset when sentences change
   useEffect(() => {
@@ -267,6 +326,44 @@ export default function Workspace() {
 
   const currentSentence = sentences[currentSentenceIndex] || null
   const totalDuration = selectedLesson?.duration || 0
+  const sentenceCount = sentences.length
+
+  // Map click/drag position to nearest sentence and seek to its start
+  const seekToNearestSentence = (clientX: number) => {
+    const bar = progressBarRef.current
+    if (!bar || !audioRef.current || !sentenceCount) return
+    const rect = bar.getBoundingClientRect()
+    const percent = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+    const segmentIndex = Math.min(Math.floor(percent * sentenceCount), sentenceCount - 1)
+    const sentence = sentences[segmentIndex]
+    if (!sentence) return
+    const newTime = sentence.start_time
+    skipNextSyncRef.current = true
+    soughtTimeRef.current = newTime
+    soughtSegmentIndexRef.current = segmentIndex
+    audioRef.current.currentTime = newTime
+    setCurrentTime(newTime)
+    setCurrentSentenceIndex(segmentIndex)
+    console.log('sentence time', newTime)
+    console.log('segmentIndex', segmentIndex)
+    console.log('sentence', sentence)
+    repeatCountRef.current = 0
+    setIsPlaying(true)
+  }
+
+  useEffect(() => {
+    if (!isDraggingProgress) return
+    const onMouseMove = (e: MouseEvent) => seekToNearestSentence(e.clientX)
+    const onMouseUp = () => setIsDraggingProgress(false)
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+    // seekToNearestSentence is stable per render; we only want to attach when drag starts
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDraggingProgress])
 
   return (
     <div className="h-screen flex flex-col bg-white">
@@ -498,32 +595,59 @@ export default function Workspace() {
                 </button>
                 <div className="flex-1 flex items-center gap-2">
                   <div
-                    className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden cursor-pointer"
-                    onClick={(e) => {
-                      if (!audioRef.current || !totalDuration) return
-                      const rect = e.currentTarget.getBoundingClientRect()
-                      const percent = (e.clientX - rect.left) / rect.width
-                      const newTime = percent * totalDuration
-                      audioRef.current.currentTime = newTime
-                      setCurrentTime(newTime)
-
-                      // Find the sentence that corresponds to this time
-                      const sentenceIndex = sentences.findIndex(
-                        s => newTime >= s.start_time && newTime <= s.end_time
-                      )
-                      if (sentenceIndex !== -1) {
-                        setCurrentSentenceIndex(sentenceIndex)
-                        repeatCountRef.current = 0
-                      }
+                    ref={progressBarRef}
+                    className="flex-1 h-2 rounded-full overflow-hidden cursor-pointer select-none flex"
+                    onClick={(e) => seekToNearestSentence(e.clientX)}
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      setIsDraggingProgress(true)
+                      seekToNearestSentence(e.clientX)
                     }}
                   >
-                    <div
-                      className="h-full bg-indigo-600 transition-all"
-                      style={{ width: `${totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0}%` }}
-                    />
+                    {sentenceCount > 0 ? (
+                      sentences.map((s, i) => {
+                        const start = s.start_time
+                        const end = i + 1 < sentences.length ? sentences[i + 1].start_time : totalDuration
+                        const segmentDuration = end - start
+                        const fillPercent =
+                          currentTime <= start
+                            ? 0
+                            : segmentDuration <= 0 || currentTime >= end
+                              ? 100
+                              : (100 * (currentTime - start)) / segmentDuration
+                        return (
+                          <div
+                            key={i}
+                            className="relative flex-1 min-w-0 h-full"
+                            style={{ width: `${100 / sentenceCount}%` }}
+                          >
+                            <div className="absolute inset-0 bg-gray-200" />
+                            <div
+                              className="absolute inset-0 bg-indigo-600 transition-all origin-left"
+                              style={{ width: `${fillPercent}%` }}
+                            />
+                            {i > 0 && (
+                              <div className="absolute left-0 top-0 w-px h-full bg-gray-300 z-10" />
+                            )}
+                          </div>
+                        )
+                      })
+                    ) : (
+                      <div className="flex-1 h-full bg-gray-200 rounded-full overflow-hidden relative">
+                        <div
+                          className="absolute inset-y-0 left-0 bg-indigo-600 transition-all rounded-full"
+                          style={{ width: `${totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0}%` }}
+                        />
+                      </div>
+                    )}
                   </div>
                   <span className="text-sm text-gray-600 min-w-[3rem]">
                     {formatTime(currentTime)} / {formatTime(totalDuration)}
+                    {sentenceCount > 0 && (
+                      <span className="ml-2 text-gray-500 bg-gray-100 rounded-full px-2 py-1">
+                        {currentSentenceIndex + 1} / {sentenceCount}
+                      </span>
+                    )}
                   </span>
                 </div>
               </div>
