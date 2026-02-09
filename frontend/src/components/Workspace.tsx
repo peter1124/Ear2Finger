@@ -31,14 +31,12 @@ interface Sentence {
 export default function Workspace() {
   const navigate = useNavigate()
   const audioRef = useRef<HTMLAudioElement>(null)
-  const progressBarRef = useRef<HTMLDivElement>(null)
   const intervalTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isWaitingForPauseIntervalRef = useRef(false)
   const repeatCountRef = useRef(0)
-  const skipNextSyncRef = useRef(false)
-  const soughtTimeRef = useRef<number>(0)
-  const soughtSegmentIndexRef = useRef<number | null>(null)
   const sentenceIndexFromPlaybackRef = useRef(false)
-  const [isDraggingProgress, setIsDraggingProgress] = useState(false)
+  const userInitiatedSentenceChangeRef = useRef(false)
+  const programmaticSeekRef = useRef(false)
 
   const [playlists, setPlaylists] = useState<Playlist[]>([])
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<number | null>(null)
@@ -49,13 +47,12 @@ export default function Workspace() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [playbackSpeed, setPlaybackSpeed] = useState(1)
-  const [interval, setInterval] = useState(3)
+  const [pauseInterval, setPauseInterval] = useState(3)
   const [ignorePunctuation, setIgnorePunctuation] = useState(true)
   const [ignoreCase, setIgnoreCase] = useState(true)
   const [repeatCount, setRepeatCount] = useState<number | '∞'>(3)
   const [userInput, setUserInput] = useState('')
   const [scores, setScores] = useState({ correct: 22, partial: 1, incorrect: 1 })
-  const [playbackMode, setPlaybackMode] = useState<'continuous' | 'sentence'>('sentence')
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
 
   // Load playlists and lessons on component mount
@@ -119,12 +116,14 @@ export default function Workspace() {
       const response = await axios.get(`http://localhost:8000/api/youtube/videos/${videoId}/sentences`)
       setSentences(response.data)
       setCurrentSentenceIndex(0)
+      console.log('[SEEK] fetchSentences: setCurrentSentenceIndex(0)', { videoId })
     } catch (err) {
       console.error('Error fetching sentences:', err)
     }
   }
 
   const handleLessonSelect = (lesson: Lesson) => {
+    console.log('[SEEK] handleLessonSelect: reset to 0', { lessonId: lesson.id })
     setSelectedLesson(lesson)
     fetchSentences(lesson.video_id)
     setUserInput('')
@@ -149,40 +148,26 @@ export default function Workspace() {
     }
   }, [playbackSpeed])
 
-  // Handle time updates: keep currentTime and subtitle in sync with audio playback
-  const totalDurationForSync = selectedLesson?.duration ?? 0
+  // Handle time updates: keep progress bar (currentTime) in sync with audio playback
   useEffect(() => {
     const audio = audioRef.current
     if (!audio || !sentences.length) return
 
     const updateTime = () => {
-      if (skipNextSyncRef.current) {
-        setCurrentTime(soughtTimeRef.current)
-        return
-      }
       const t = audio.currentTime
       setCurrentTime(t)
-      // Sync displayed subtitle to playhead: find sentence containing current time
-      const nextIdx = sentences.findIndex((s, i) => {
-        const nextStart = i + 1 < sentences.length ? sentences[i + 1].start_time : totalDurationForSync
-        return t >= s.start_time && t < nextStart
-      })
-      const idx = nextIdx >= 0 ? nextIdx : (t < sentences[0].start_time ? 0 : sentences.length - 1)
-      setCurrentSentenceIndex((prev) => {
-        if (prev === idx) return prev
-        sentenceIndexFromPlaybackRef.current = true
-        return idx
-      })
+      // Do not sync sentence index from playhead here – it was causing next/prev to be overwritten.
+      // Index is only changed by prev/next buttons and by the sentence-by-sentence effect.
     }
 
     audio.addEventListener('timeupdate', updateTime)
     return () => audio.removeEventListener('timeupdate', updateTime)
-  }, [sentences, totalDurationForSync])
+  }, [sentences])
 
-  // Handle sentence-by-sentence playback
+  // Handle sentence-by-sentence playback (repeat current sentence, then advance)
   useEffect(() => {
     const audio = audioRef.current
-    if (!audio || !sentences.length || playbackMode !== 'sentence' || !isPlaying) return
+    if (!audio || !sentences.length || !isPlaying) return
 
     const currentSentence = sentences[currentSentenceIndex]
     if (!currentSentence) return
@@ -191,56 +176,112 @@ export default function Workspace() {
 
     const checkSentenceEnd = () => {
       if (!isPlaying) return
+
       const nextSentence = sentences[currentSentenceIndex + 1]
-      // Use start_time only: advance when we reach the next sentence's start (or end of audio for last sentence)
-      const hasReachedNext =
-        nextSentence
-          ? audio.currentTime >= nextSentence.start_time
-          : totalDuration > 0 && audio.currentTime >= totalDuration
+      // Prefer explicit end_time if available; otherwise fall back to next sentence's start, or total duration
+      const endTime = nextSentence
+            ? nextSentence.start_time
+            : totalDuration
 
-      if (hasReachedNext) {
-        audio.pause()
+      if (!endTime || endTime <= 0) return
 
-        // Check if we need to repeat
-        const shouldRepeat = repeatCount === '∞' || (typeof repeatCount === 'number' && repeatCountRef.current < repeatCount - 1)
+      const hasReachedEnd = audio.currentTime >= endTime
+      if (!hasReachedEnd) return
 
-        if (shouldRepeat) {
-          repeatCountRef.current++
-          // Repeat current sentence
-          audio.currentTime = currentSentence.start_time
-          setTimeout(() => {
-            if (isPlaying) {
-              audio.play()
+      // Decide whether to repeat this sentence or move on
+      const shouldRepeat =
+        repeatCount === '∞' ||
+        (typeof repeatCount === 'number' && repeatCountRef.current < repeatCount - 1)
+
+      if (pauseInterval > 0) {
+        // Simulate "click pause" at start: UI and audio show paused
+        isWaitingForPauseIntervalRef.current = true
+        if (intervalTimeoutRef.current) clearTimeout(intervalTimeoutRef.current)
+        intervalTimeoutRef.current = setTimeout(() => {
+          isWaitingForPauseIntervalRef.current = false
+          intervalTimeoutRef.current = null
+          const audioEl = audioRef.current
+          if (!audioEl) return
+          const playAfterSeek = (targetTime: number) => {
+            setCurrentTime(targetTime)
+            programmaticSeekRef.current = true
+            setIsPlaying(true)
+            let fallback: ReturnType<typeof setTimeout>
+            const onSeeked = () => {
+              audioEl.removeEventListener('seeked', onSeeked)
+              clearTimeout(fallback)
+              audioEl.play().catch(() => {})
+              console.log('[SEEK] timeout: seeked then play(), el.currentTime=', audioEl.currentTime)
             }
-          }, 100)
-        } else {
-          // Move to next sentence after interval
-          repeatCountRef.current = 0
-          if (intervalTimeoutRef.current) {
-            clearTimeout(intervalTimeoutRef.current)
+            audioEl.addEventListener('seeked', onSeeked, { once: true })
+            audioEl.currentTime = targetTime
+            fallback = setTimeout(() => {
+              if (audioEl.paused) {
+                audioEl.removeEventListener('seeked', onSeeked)
+                audioEl.play().catch(() => {})
+              }
+            }, 200)
           }
-
-          intervalTimeoutRef.current = setTimeout(() => {
+          if (shouldRepeat) {
+            repeatCountRef.current++
+            if (currentSentence) {
+              playAfterSeek(currentSentence.start_time)
+              console.log('[SEEK] timeout-repeat: set', currentSentence.start_time, 'wait seeked')
+            } else {
+              setIsPlaying(true)
+            }
+          } else {
+            repeatCountRef.current = 0
             if (currentSentenceIndex < sentences.length - 1) {
               const nextIndex = currentSentenceIndex + 1
               setCurrentSentenceIndex(nextIndex)
-              const nextSentence = sentences[nextIndex]
-              if (nextSentence && audio) {
-                audio.currentTime = nextSentence.start_time
-                if (isPlaying) {
-                  audio.play()
-                }
+              const ns = sentences[nextIndex]
+              if (ns) {
+                playAfterSeek(ns.start_time)
+                userInitiatedSentenceChangeRef.current = true
+                console.log('[SEEK] timeout-advance: set', ns.start_time, 'wait seeked')
+              } else {
+                setIsPlaying(true)
               }
             } else {
-              // Reached end of all sentences
-              setIsPlaying(false)
               setCurrentSentenceIndex(0)
-              if (audio) {
-                audio.pause()
-                audio.currentTime = 0
-              }
+              audioEl.currentTime = 0
+              setCurrentTime(0)
+              console.log('[SEEK] timeout-end: set index 0, currentTime 0')
+              // stay paused (isPlaying already false)
             }
-          }, interval * 1000)
+          }
+        }, pauseInterval * 1000)
+        setIsPlaying(false) // simulate "click pause"
+      } else {
+        if (shouldRepeat) {
+          repeatCountRef.current++
+          const audioEl = audioRef.current
+          if (audioEl && currentSentence) {
+            audioEl.currentTime = currentSentence.start_time
+            console.log('[SEEK] noInterval-repeat: audioEl.currentTime =', currentSentence.start_time, 'idx=', currentSentenceIndex)
+            audioEl.play().catch(() => {})
+          }
+        } else {
+          repeatCountRef.current = 0
+          const audioEl = audioRef.current
+          if (!audioEl) return
+          if (currentSentenceIndex < sentences.length - 1) {
+            const nextIndex = currentSentenceIndex + 1
+            setCurrentSentenceIndex(nextIndex)
+            const ns = sentences[nextIndex]
+            if (ns) {
+              audioEl.currentTime = ns.start_time
+              console.log('[SEEK] noInterval-advance: audioEl.currentTime =', ns.start_time, 'nextIdx=', nextIndex)
+              audioEl.play().catch(() => {})
+            }
+          } else {
+            setIsPlaying(false)
+            setCurrentSentenceIndex(0)
+            audioEl.pause()
+            audioEl.currentTime = 0
+            console.log('[SEEK] noInterval-end: set index 0, currentTime 0')
+          }
         }
       }
     }
@@ -248,69 +289,85 @@ export default function Workspace() {
     const intervalId = setInterval(checkSentenceEnd, 50) // Check more frequently for better accuracy
     return () => {
       clearInterval(intervalId)
-      if (intervalTimeoutRef.current) {
+      // Don't clear the pause-interval timeout when we're in the middle of it (simulated pause)
+      if (intervalTimeoutRef.current && !isWaitingForPauseIntervalRef.current) {
         clearTimeout(intervalTimeoutRef.current)
+        intervalTimeoutRef.current = null
       }
     }
-  }, [currentSentenceIndex, sentences, isPlaying, interval, repeatCount, playbackMode, selectedLesson?.duration])
+  }, [currentSentenceIndex, sentences, isPlaying, pauseInterval, repeatCount, selectedLesson?.duration])
 
-  // Handle play/pause
+  // Sync and reset run BEFORE play effect so that position is set first; play effect then only plays and does not overwrite (e.g. to 0).
+  // Keep audio progress in sync with current subtitle: seek to current sentence's start_time when subtitle changes. Skip when change came from playback (timeupdate), user clicking prev/next, or pause-interval timeout (we already seeked there).
+  useEffect(() => {
+    if (!audioRef.current || !sentences.length) return
+    const sentence = sentences[currentSentenceIndex]
+    if (!sentence) return
+    if (programmaticSeekRef.current) {
+      programmaticSeekRef.current = false
+      console.log('[SEEK] syncEffect: skip (programmaticSeekRef)', { idx: currentSentenceIndex })
+      return
+    }
+    if (userInitiatedSentenceChangeRef.current) {
+      userInitiatedSentenceChangeRef.current = false
+      console.log('[SEEK] syncEffect: skip (userInitiated)', { idx: currentSentenceIndex })
+      return
+    }
+    if (sentenceIndexFromPlaybackRef.current) {
+      sentenceIndexFromPlaybackRef.current = false
+      console.log('[SEEK] syncEffect: skip (sentenceIndexFromPlayback)', { idx: currentSentenceIndex })
+      return
+    }
+    audioRef.current.currentTime = sentence.start_time
+    setCurrentTime(sentence.start_time)
+    console.log('[SEEK] syncEffect: seek to sentence start', { idx: currentSentenceIndex, start_time: sentence.start_time, el_currentTime_after: audioRef.current.currentTime })
+  }, [currentSentenceIndex, sentences])
+
+  // Reset when sentences change (e.g. new lesson loaded). Only reset position when not playing so we don't interrupt playback if sentences reference changes unexpectedly.
+  useEffect(() => {
+    if (sentences.length > 0 && !isPlaying) {
+      setCurrentSentenceIndex(0)
+      repeatCountRef.current = 0
+      if (audioRef.current) {
+        audioRef.current.currentTime = sentences[0].start_time
+        console.log('[SEEK] resetEffect: sentences changed, set index 0 and currentTime =', sentences[0].start_time, 'isPlaying=', isPlaying)
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only run on sentences change; isPlaying is read to avoid reset during playback
+  }, [sentences])
+
+  // Handle play/pause (runs after sync/reset so position is already set; for sentence 0 we never seek here to avoid overwriting with 0)
   useEffect(() => {
     const audio = audioRef.current
     if (!audio || !sentences.length) return
-    if (isDraggingProgress) return
 
     if (isPlaying) {
-      // If user just sought via progress bar, use the ref so we don't depend on state timing
-      const segmentIndex = soughtSegmentIndexRef.current
-      if (segmentIndex !== null && sentences[segmentIndex]) {
-        soughtSegmentIndexRef.current = null
-        const t = sentences[segmentIndex].start_time
-        audio.currentTime = t
-        setCurrentTime(t)
+      // User (or timer) clicked play: cancel any pending pause-interval timeout so it doesn't double-fire
+      if (intervalTimeoutRef.current) {
+        clearTimeout(intervalTimeoutRef.current)
+        intervalTimeoutRef.current = null
+      }
+      isWaitingForPauseIntervalRef.current = false
+      // Skip seek when we just set position in the pause-interval timeout so play effect doesn't overwrite (e.g. to 0)
+      if (programmaticSeekRef.current) {
+        programmaticSeekRef.current = false
+        console.log('[SEEK] playEffect: skip seek (programmaticSeekRef), just play. el.currentTime=', audio.currentTime)
         audio.play()
         return
       }
       const currentSentence = sentences[currentSentenceIndex]
       if (currentSentence) {
-        if (audio.currentTime < currentSentence.start_time) {
+        // Only seek when past sentence 0; for index 0 rely on sync/reset so we never set currentTime to 0 here
+        if (currentSentenceIndex > 0 && audio.currentTime < currentSentence.start_time) {
           audio.currentTime = currentSentence.start_time
+          console.log('[SEEK] playEffect: seek to sentence start', { idx: currentSentenceIndex, start_time: currentSentence.start_time, el_currentTime_after: audio.currentTime })
         }
         audio.play()
       }
     } else {
       audio.pause()
     }
-  }, [isPlaying, currentSentenceIndex, sentences, isDraggingProgress])
-
-  // Keep audio progress in sync with current subtitle: seek to current sentence's start_time when subtitle changes (e.g. prev/next). Skip when change came from playback (timeupdate) or user sought via progress bar.
-  useEffect(() => {
-    if (!audioRef.current || !sentences.length || isDraggingProgress) return
-    const sentence = sentences[currentSentenceIndex]
-    if (!sentence) return
-    if (sentenceIndexFromPlaybackRef.current) {
-      sentenceIndexFromPlaybackRef.current = false
-      return
-    }
-    if (skipNextSyncRef.current) {
-      skipNextSyncRef.current = false
-      setCurrentTime(soughtTimeRef.current)
-      return
-    }
-    audioRef.current.currentTime = sentence.start_time
-    setCurrentTime(sentence.start_time)
-  }, [currentSentenceIndex, sentences, isDraggingProgress])
-
-  // Reset when sentences change
-  useEffect(() => {
-    if (sentences.length > 0) {
-      setCurrentSentenceIndex(0)
-      repeatCountRef.current = 0
-      if (audioRef.current) {
-        audioRef.current.currentTime = sentences[0].start_time
-      }
-    }
-  }, [sentences])
+  }, [isPlaying, currentSentenceIndex, sentences])
 
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
@@ -327,43 +384,6 @@ export default function Workspace() {
   const currentSentence = sentences[currentSentenceIndex] || null
   const totalDuration = selectedLesson?.duration || 0
   const sentenceCount = sentences.length
-
-  // Map click/drag position to nearest sentence and seek to its start
-  const seekToNearestSentence = (clientX: number) => {
-    const bar = progressBarRef.current
-    if (!bar || !audioRef.current || !sentenceCount) return
-    const rect = bar.getBoundingClientRect()
-    const percent = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
-    const segmentIndex = Math.min(Math.floor(percent * sentenceCount), sentenceCount - 1)
-    const sentence = sentences[segmentIndex]
-    if (!sentence) return
-    const newTime = sentence.start_time
-    skipNextSyncRef.current = true
-    soughtTimeRef.current = newTime
-    soughtSegmentIndexRef.current = segmentIndex
-    audioRef.current.currentTime = newTime
-    setCurrentTime(newTime)
-    setCurrentSentenceIndex(segmentIndex)
-    console.log('sentence time', newTime)
-    console.log('segmentIndex', segmentIndex)
-    console.log('sentence', sentence)
-    repeatCountRef.current = 0
-    setIsPlaying(true)
-  }
-
-  useEffect(() => {
-    if (!isDraggingProgress) return
-    const onMouseMove = (e: MouseEvent) => seekToNearestSentence(e.clientX)
-    const onMouseUp = () => setIsDraggingProgress(false)
-    window.addEventListener('mousemove', onMouseMove)
-    window.addEventListener('mouseup', onMouseUp)
-    return () => {
-      window.removeEventListener('mousemove', onMouseMove)
-      window.removeEventListener('mouseup', onMouseUp)
-    }
-    // seekToNearestSentence is stable per render; we only want to attach when drag starts
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isDraggingProgress])
 
   return (
     <div className="h-screen flex flex-col bg-white">
@@ -527,9 +547,7 @@ export default function Workspace() {
                 ref={audioRef}
                 src={selectedLesson.audio_file_path ? `http://localhost:8000/api/youtube/videos/${selectedLesson.video_id}/audio` : undefined}
                 onEnded={() => {
-                  if (playbackMode === 'continuous') {
-                    setIsPlaying(false)
-                  }
+                  setIsPlaying(false)
                 }}
                 onError={(e) => {
                   console.error('Audio playback error:', e)
@@ -544,10 +562,14 @@ export default function Workspace() {
                 <button
                   onClick={() => {
                     if (currentSentenceIndex > 0) {
-                      setCurrentSentenceIndex(currentSentenceIndex - 1)
+                      userInitiatedSentenceChangeRef.current = true
+                      const prevIndex = currentSentenceIndex - 1
+                      setCurrentSentenceIndex(prevIndex)
                       repeatCountRef.current = 0
-                      if (audioRef.current && sentences[currentSentenceIndex - 1]) {
-                        audioRef.current.currentTime = sentences[currentSentenceIndex - 1].start_time
+                      if (audioRef.current && sentences[prevIndex]) {
+                        audioRef.current.currentTime = sentences[prevIndex].start_time
+                        setCurrentTime(sentences[prevIndex].start_time)
+                        console.log('[SEEK] prevBtn: currentTime =', sentences[prevIndex].start_time, 'prevIdx=', prevIndex)
                       }
                     }
                   }}
@@ -578,13 +600,26 @@ export default function Workspace() {
                 </button>
                 <button
                   onClick={() => {
-                    if (currentSentenceIndex < sentences.length - 1) {
-                      setCurrentSentenceIndex(currentSentenceIndex + 1)
-                      repeatCountRef.current = 0
-                      if (audioRef.current && sentences[currentSentenceIndex + 1]) {
-                        audioRef.current.currentTime = sentences[currentSentenceIndex + 1].start_time
-                      }
+                    if (currentSentenceIndex >= sentences.length - 1) return
+                    const nextIndex = currentSentenceIndex + 1
+                    const nextSentence = sentences[nextIndex]
+                    if (!nextSentence) return
+                    userInitiatedSentenceChangeRef.current = true
+                    // Cancel any pause-interval timeout so it doesn't fire after we skip
+                    if (intervalTimeoutRef.current) {
+                      clearTimeout(intervalTimeoutRef.current)
+                      intervalTimeoutRef.current = null
                     }
+                    isWaitingForPauseIntervalRef.current = false
+                    repeatCountRef.current = 0
+                    setCurrentSentenceIndex(nextIndex)
+                    setCurrentTime(nextSentence.start_time)
+                    if (audioRef.current) {
+                      audioRef.current.currentTime = nextSentence.start_time
+                      console.log('[SEEK] nextBtn: currentTime =', nextSentence.start_time, 'nextIdx=', nextIndex)
+                      audioRef.current.play().catch(() => {})
+                    }
+                    setIsPlaying(true)
                   }}
                   disabled={currentSentenceIndex >= sentences.length - 1}
                   className="p-2 hover:bg-gray-100 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
@@ -595,14 +630,8 @@ export default function Workspace() {
                 </button>
                 <div className="flex-1 flex items-center gap-2">
                   <div
-                    ref={progressBarRef}
-                    className="flex-1 h-2 rounded-full overflow-hidden cursor-pointer select-none flex"
-                    onClick={(e) => seekToNearestSentence(e.clientX)}
-                    onMouseDown={(e) => {
-                      e.preventDefault()
-                      setIsDraggingProgress(true)
-                      seekToNearestSentence(e.clientX)
-                    }}
+                    className="flex-1 h-2 rounded-full overflow-hidden flex pointer-events-none"
+                    aria-hidden
                   >
                     {sentenceCount > 0 ? (
                       sentences.map((s, i) => {
@@ -699,7 +728,7 @@ export default function Workspace() {
               </div>
               <div className="relative group">
                 <div className="bg-gray-900 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 text-xs cursor-pointer">
-                  <span>Interval: {interval} sec</span>
+                  <span>Interval: {pauseInterval} sec</span>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
@@ -708,9 +737,13 @@ export default function Workspace() {
                   {[0, 3, 5, 10].map((sec) => (
                     <button
                       key={sec}
-                      onClick={() => setInterval(sec)}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        setPauseInterval(sec)
+                      }}
                       className={`w-full text-left px-4 py-2 text-xs hover:bg-gray-100 ${
-                        interval === sec ? 'bg-gray-100 font-semibold' : ''
+                        pauseInterval === sec ? 'bg-gray-100 font-semibold' : ''
                       }`}
                     >
                       {sec} sec

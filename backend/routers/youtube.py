@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, HttpUrl, field_validator
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -131,12 +131,49 @@ async def get_video_sentences(
     return sentences
 
 
+def _serve_audio_with_range(path: str, request: Request, media_type: str, filename: str):
+    """Serve file with Range support so the browser can seek (currentTime)."""
+    size = os.path.getsize(path)
+    range_header = request.headers.get("range")
+    if not range_header or not range_header.strip().lower().startswith("bytes="):
+        return FileResponse(
+            path,
+            media_type=media_type,
+            filename=filename,
+            headers={"Accept-Ranges": "bytes"},
+        )
+    try:
+        parts = range_header.strip()[6:].split("-")
+        start = int(parts[0]) if parts[0] else 0
+        end = int(parts[1]) if len(parts) > 1 and parts[1] else size - 1
+        if start >= size:
+            return Response(status_code=416, headers={"Content-Range": f"bytes */{size}"})
+        end = min(end, size - 1)
+        length = end - start + 1
+        with open(path, "rb") as f:
+            f.seek(start)
+            body = f.read(length)
+        return Response(
+            status_code=206,
+            content=body,
+            media_type=media_type,
+            headers={
+                "Accept-Ranges": "bytes",
+                "Content-Range": f"bytes {start}-{end}/{size}",
+                "Content-Length": str(length),
+            },
+        )
+    except (ValueError, IndexError):
+        return FileResponse(path, media_type=media_type, filename=filename, headers={"Accept-Ranges": "bytes"})
+
+
 @router.get("/youtube/videos/{video_id}/audio")
 async def get_video_audio(
     video_id: int,
-    db: Session = Depends(get_db)
+    request: Request,
+    db: Session = Depends(get_db),
 ):
-    """Get the audio file for a specific video"""
+    """Get the audio file for a specific video. Supports Range requests for seeking."""
     video = db.query(Video).filter(Video.id == video_id).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
@@ -144,10 +181,11 @@ async def get_video_audio(
     if not video.audio_file_path or not os.path.exists(video.audio_file_path):
         raise HTTPException(status_code=404, detail="Audio file not found")
     
-    return FileResponse(
+    return _serve_audio_with_range(
         video.audio_file_path,
+        request,
         media_type="audio/mpeg",
-        filename=os.path.basename(video.audio_file_path)
+        filename=os.path.basename(video.audio_file_path),
     )
 
 
