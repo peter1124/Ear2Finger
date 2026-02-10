@@ -37,6 +37,7 @@ export default function Workspace() {
   const sentenceIndexFromPlaybackRef = useRef(false)
   const userInitiatedSentenceChangeRef = useRef(false)
   const programmaticSeekRef = useRef(false)
+  const wordInputRefs = useRef<(HTMLInputElement | null)[]>([])
 
   const [playlists, setPlaylists] = useState<Playlist[]>([])
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<number | null>(null)
@@ -52,6 +53,8 @@ export default function Workspace() {
   const [ignoreCase, setIgnoreCase] = useState(true)
   const [repeatCount, setRepeatCount] = useState<number | '∞'>(3)
   const [userInput, setUserInput] = useState('')
+  const [wordInputs, setWordInputs] = useState<string[]>([])
+  const [wordHintIndex, setWordHintIndex] = useState<number | null>(null)
   const [scores, setScores] = useState({ correct: 22, partial: 1, incorrect: 1 })
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
 
@@ -116,14 +119,12 @@ export default function Workspace() {
       const response = await axios.get(`http://localhost:8000/api/youtube/videos/${videoId}/sentences`)
       setSentences(response.data)
       setCurrentSentenceIndex(0)
-      console.log('[SEEK] fetchSentences: setCurrentSentenceIndex(0)', { videoId })
     } catch (err) {
       console.error('Error fetching sentences:', err)
     }
   }
 
   const handleLessonSelect = (lesson: Lesson) => {
-    console.log('[SEEK] handleLessonSelect: reset to 0', { lessonId: lesson.id })
     setSelectedLesson(lesson)
     fetchSentences(lesson.video_id)
     setUserInput('')
@@ -164,7 +165,7 @@ export default function Workspace() {
     return () => audio.removeEventListener('timeupdate', updateTime)
   }, [sentences])
 
-  // Handle sentence-by-sentence playback (repeat current sentence, then advance)
+  // Handle sentence-by-sentence playback
   useEffect(() => {
     const audio = audioRef.current
     if (!audio || !sentences.length || !isPlaying) return
@@ -188,10 +189,21 @@ export default function Workspace() {
       const hasReachedEnd = audio.currentTime >= endTime
       if (!hasReachedEnd) return
 
-      // Decide whether to repeat this sentence or move on
+      // When repeat is ∞, only advance when the user has spelled the current sentence fully correctly
+      const words = currentSentence.sentence_text.split(/\s+/).filter(Boolean)
+      const norm = (w: string) => {
+        let s = w
+        if (ignoreCase) s = s.toLowerCase()
+        if (ignorePunctuation) s = s.replace(/[^\w\s]/g, '')
+        return s
+      }
+      const isCurrentSentenceFullyCorrect =
+        words.length === wordInputs.length &&
+        words.every((w, i) => norm(w) === norm(wordInputs[i] ?? ''))
       const shouldRepeat =
-        repeatCount === '∞' ||
-        (typeof repeatCount === 'number' && repeatCountRef.current <= repeatCount - 1)
+        repeatCount === '∞'
+          ? !isCurrentSentenceFullyCorrect
+          : (typeof repeatCount === 'number' && repeatCountRef.current <= repeatCount - 1)
 
       if (pauseInterval > 0) {
         // Simulate "click pause" at start: UI and audio show paused
@@ -211,7 +223,6 @@ export default function Workspace() {
               audioEl.removeEventListener('seeked', onSeeked)
               clearTimeout(fallback)
               audioEl.play().catch(() => {})
-              console.log('[SEEK] timeout: seeked then play(), el.currentTime=', audioEl.currentTime)
             }
             audioEl.addEventListener('seeked', onSeeked, { once: true })
             audioEl.currentTime = targetTime
@@ -226,7 +237,6 @@ export default function Workspace() {
             repeatCountRef.current++
             if (currentSentence) {
               playAfterSeek(currentSentence.start_time)
-              console.log('[SEEK] timeout-repeat: set', currentSentence.start_time, 'wait seeked')
             } else {
               setIsPlaying(true)
             }
@@ -239,7 +249,6 @@ export default function Workspace() {
               if (ns) {
                 playAfterSeek(ns.start_time)
                 userInitiatedSentenceChangeRef.current = true
-                console.log('[SEEK] timeout-advance: set', ns.start_time, 'wait seeked')
               } else {
                 setIsPlaying(true)
               }
@@ -247,7 +256,6 @@ export default function Workspace() {
               setCurrentSentenceIndex(0)
               audioEl.currentTime = 0
               setCurrentTime(0)
-              console.log('[SEEK] timeout-end: set index 0, currentTime 0')
               // stay paused (isPlaying already false)
             }
           }
@@ -259,7 +267,6 @@ export default function Workspace() {
           const audioEl = audioRef.current
           if (audioEl && currentSentence) {
             audioEl.currentTime = currentSentence.start_time
-            console.log('[SEEK] noInterval-repeat: audioEl.currentTime =', currentSentence.start_time, 'idx=', currentSentenceIndex)
             audioEl.play().catch(() => {})
           }
         } else {
@@ -272,7 +279,6 @@ export default function Workspace() {
             const ns = sentences[nextIndex]
             if (ns) {
               audioEl.currentTime = ns.start_time
-              console.log('[SEEK] noInterval-advance: audioEl.currentTime =', ns.start_time, 'nextIdx=', nextIndex)
               audioEl.play().catch(() => {})
             }
           } else {
@@ -280,7 +286,6 @@ export default function Workspace() {
             setCurrentSentenceIndex(0)
             audioEl.pause()
             audioEl.currentTime = 0
-            console.log('[SEEK] noInterval-end: set index 0, currentTime 0')
           }
         }
       }
@@ -295,7 +300,7 @@ export default function Workspace() {
         intervalTimeoutRef.current = null
       }
     }
-  }, [currentSentenceIndex, sentences, isPlaying, pauseInterval, repeatCount, selectedLesson?.duration])
+  }, [currentSentenceIndex, sentences, isPlaying, pauseInterval, repeatCount, selectedLesson?.duration, wordInputs, ignoreCase, ignorePunctuation])
 
   // Sync and reset run BEFORE play effect so that position is set first; play effect then only plays and does not overwrite (e.g. to 0).
   // Keep audio progress in sync with current subtitle: seek to current sentence's start_time when subtitle changes. Skip when change came from playback (timeupdate), user clicking prev/next, or pause-interval timeout (we already seeked there).
@@ -305,22 +310,18 @@ export default function Workspace() {
     if (!sentence) return
     if (programmaticSeekRef.current) {
       programmaticSeekRef.current = false
-      console.log('[SEEK] syncEffect: skip (programmaticSeekRef)', { idx: currentSentenceIndex })
       return
     }
     if (userInitiatedSentenceChangeRef.current) {
       userInitiatedSentenceChangeRef.current = false
-      console.log('[SEEK] syncEffect: skip (userInitiated)', { idx: currentSentenceIndex })
       return
     }
     if (sentenceIndexFromPlaybackRef.current) {
       sentenceIndexFromPlaybackRef.current = false
-      console.log('[SEEK] syncEffect: skip (sentenceIndexFromPlayback)', { idx: currentSentenceIndex })
       return
     }
     audioRef.current.currentTime = sentence.start_time
     setCurrentTime(sentence.start_time)
-    console.log('[SEEK] syncEffect: seek to sentence start', { idx: currentSentenceIndex, start_time: sentence.start_time, el_currentTime_after: audioRef.current.currentTime })
   }, [currentSentenceIndex, sentences])
 
   // Reset when sentences change (e.g. new lesson loaded). Only reset position when not playing so we don't interrupt playback if sentences reference changes unexpectedly.
@@ -330,7 +331,6 @@ export default function Workspace() {
       repeatCountRef.current = 0
       if (audioRef.current) {
         audioRef.current.currentTime = sentences[0].start_time
-        console.log('[SEEK] resetEffect: sentences changed, set index 0 and currentTime =', sentences[0].start_time, 'isPlaying=', isPlaying)
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only run on sentences change; isPlaying is read to avoid reset during playback
@@ -351,7 +351,6 @@ export default function Workspace() {
       // Skip seek when we just set position in the pause-interval timeout so play effect doesn't overwrite (e.g. to 0)
       if (programmaticSeekRef.current) {
         programmaticSeekRef.current = false
-        console.log('[SEEK] playEffect: skip seek (programmaticSeekRef), just play. el.currentTime=', audio.currentTime)
         audio.play()
         return
       }
@@ -360,7 +359,6 @@ export default function Workspace() {
         // Only seek when past sentence 0; for index 0 rely on sync/reset so we never set currentTime to 0 here
         if (currentSentenceIndex > 0 && audio.currentTime < currentSentence.start_time) {
           audio.currentTime = currentSentence.start_time
-          console.log('[SEEK] playEffect: seek to sentence start', { idx: currentSentenceIndex, start_time: currentSentence.start_time, el_currentTime_after: audio.currentTime })
         }
         audio.play()
       }
@@ -384,6 +382,47 @@ export default function Workspace() {
   const currentSentence = sentences[currentSentenceIndex] || null
   const totalDuration = selectedLesson?.duration || 0
   const sentenceCount = sentences.length
+
+  // Reset per-word inputs and hint when current sentence changes
+  useEffect(() => {
+    if (!currentSentence) {
+      setWordInputs([])
+      setWordHintIndex(null)
+      return
+    }
+    const words = currentSentence.sentence_text.split(/\s+/).filter(Boolean)
+    setWordInputs(words.map(() => ''))
+    setWordHintIndex(null)
+    wordInputRefs.current = []
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only reset when sentence index/id changes
+  }, [currentSentenceIndex, currentSentence?.id])
+
+  // When switching to a new sentence, focus the first word input (not when repeating the same sentence)
+  useEffect(() => {
+    if (!currentSentence) return
+    const t = setTimeout(() => {
+      wordInputRefs.current[0]?.focus()
+    }, 0)
+    return () => clearTimeout(t)
+  }, [currentSentenceIndex, currentSentence?.id])
+
+  const normalizeWord = (w: string) => {
+    let s = w
+    if (ignoreCase) s = s.toLowerCase()
+    if (ignorePunctuation) s = s.replace(/[^\w\s]/g, '')
+    return s
+  }
+
+  const getWordUnderlineClass = (targetWord: string, inputValue: string) => {
+    if (inputValue.length === 0) return 'border-b-2 border-gray-300'
+    const target = normalizeWord(targetWord)
+    const input = normalizeWord(inputValue)
+    for (let i = 0; i < input.length; i++) {
+      if (i >= target.length || input[i] !== target[i]) return 'border-b-2 border-red-500'
+    }
+    if (input.length < target.length) return 'border-b-2 border-yellow-500'
+    return 'border-b-2 border-green-500'
+  }
 
   return (
     <div className="h-screen flex flex-col bg-white">
@@ -569,7 +608,6 @@ export default function Workspace() {
                       if (audioRef.current && sentences[prevIndex]) {
                         audioRef.current.currentTime = sentences[prevIndex].start_time
                         setCurrentTime(sentences[prevIndex].start_time)
-                        console.log('[SEEK] prevBtn: currentTime =', sentences[prevIndex].start_time, 'prevIdx=', prevIndex)
                       }
                     }
                   }}
@@ -616,7 +654,6 @@ export default function Workspace() {
                     setCurrentTime(nextSentence.start_time)
                     if (audioRef.current) {
                       audioRef.current.currentTime = nextSentence.start_time
-                      console.log('[SEEK] nextBtn: currentTime =', nextSentence.start_time, 'nextIdx=', nextIndex)
                       audioRef.current.play().catch(() => {})
                     }
                     setIsPlaying(true)
@@ -821,34 +858,91 @@ export default function Workspace() {
             </div>
           </div>
 
-          {/* Middle Panel - Text Display */}
+          {/* Middle Panel - Per-word input (subtitle hidden, one input per word) */}
           <div className="flex-1 p-4 overflow-y-auto bg-white">
-            {currentSentence ? (
-              <div className="max-w-4xl mx-auto">
-                <div className="text-lg leading-relaxed text-gray-900">
-                  {currentSentence.sentence_text.split(' ').map((word, idx) => {
-                    // Simple matching logic - in real app, this would compare with user input
-                    // For now, showing a mix of correct, partial, and incorrect for demonstration
-                    const wordStatus = idx % 10
-                    let underlineClass = 'border-b-2 border-gray-300'
-
-                    if (wordStatus < 7) {
-                      underlineClass = 'border-b-2 border-green-500' // Correct
-                    } else if (wordStatus < 9) {
-                      underlineClass = 'border-b-2 border-orange-500' // Partial
-                    } else {
-                      underlineClass = 'border-b-2 border-red-500' // Incorrect
-                    }
-
-                    return (
-                      <span key={idx} className={underlineClass}>
-                        {word}{' '}
-                      </span>
-                    )
-                  })}
+            {currentSentence ? (() => {
+              const words = currentSentence.sentence_text.split(/\s+/).filter(Boolean)
+              return (
+                <div className="max-w-4xl mx-auto">
+                  <div className="text-xl leading-relaxed text-gray-900 flex flex-wrap items-baseline gap-x-2 gap-y-3">
+                    {words.map((word, idx) => {
+                      const isHintShown = wordHintIndex === idx
+                      const value = isHintShown ? word : (wordInputs[idx] ?? '')
+                      const underlineClass = getWordUnderlineClass(word, value)
+                      return (
+                        <span key={idx} className="inline-flex items-baseline">
+                          <input
+                            ref={(el) => {
+                              if (!wordInputRefs.current) wordInputRefs.current = []
+                              wordInputRefs.current[idx] = el
+                            }}
+                            type="text"
+                            value={value}
+                            onChange={(e) => {
+                              const v = e.target.value
+                              if (isHintShown) {
+                                setWordHintIndex(null)
+                                setWordInputs((prev) => {
+                                  const next = [...prev]
+                                  while (next.length <= idx) next.push('')
+                                  next[idx] = v
+                                  return next
+                                })
+                                return
+                              }
+                              setWordInputs((prev) => {
+                                const next = [...prev]
+                                while (next.length <= idx) next.push('')
+                                next[idx] = v
+                                return next
+                              })
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Backspace' && value.length === 0 && idx > 0) {
+                                e.preventDefault()
+                                wordInputRefs.current[idx - 1]?.focus()
+                                return
+                              }
+                              if (e.key === ' ') {
+                                e.preventDefault()
+                                wordInputRefs.current[idx + 1]?.focus()
+                                return
+                              }
+                              if (e.key === 'Tab') {
+                                e.preventDefault()
+                                if (wordHintIndex === idx) {
+                                  setWordHintIndex(null)
+                                  wordInputRefs.current[idx + 1]?.focus()
+                                } else {
+                                  setWordHintIndex(idx)
+                                }
+                                return
+                              }
+                              if (wordHintIndex === idx && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+                                e.preventDefault()
+                                setWordHintIndex(null)
+                                setWordInputs((prev) => {
+                                  const next = [...prev]
+                                  while (next.length <= idx) next.push('')
+                                  next[idx] = e.key
+                                  return next
+                                })
+                              }
+                            }}
+                            className={`bg-transparent border-0 outline-none px-0.5 py-0 min-w-0 ${underlineClass} ${isHintShown ? 'text-gray-400' : 'text-gray-900'}`}
+                            style={{ minWidth: `${Math.max(2, word.length)}ch` }}
+                            aria-label={`Word ${idx + 1}`}
+                            autoComplete="off"
+                            spellCheck={false}
+                          />
+                          {idx < words.length - 1 ? '\u00A0' : null}
+                        </span>
+                      )
+                    })}
+                  </div>
                 </div>
-              </div>
-            ) : (
+              )
+            })() : (
               <div className="text-center text-gray-500 py-12">
                 Select a lesson to start practicing
               </div>
