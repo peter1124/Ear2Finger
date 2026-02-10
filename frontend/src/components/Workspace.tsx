@@ -51,7 +51,7 @@ export default function Workspace() {
   const [pauseInterval, setPauseInterval] = useState(3)
   const [ignorePunctuation, setIgnorePunctuation] = useState(true)
   const [ignoreCase, setIgnoreCase] = useState(true)
-  const [repeatCount, setRepeatCount] = useState<number | '∞'>(3)
+  const [repeatCount, setRepeatCount] = useState<number | '∞'>('∞')
   const [userInput, setUserInput] = useState('')
   const [wordInputs, setWordInputs] = useState<string[]>([])
   const [wordHintIndex, setWordHintIndex] = useState<number | null>(null)
@@ -382,6 +382,19 @@ export default function Workspace() {
   const currentSentence = sentences[currentSentenceIndex] || null
   const totalDuration = selectedLesson?.duration || 0
   const sentenceCount = sentences.length
+
+  // Check if current sentence is fully correct (same normalization as playback logic)
+  const isCurrentSentenceFullyCorrect = currentSentence && (() => {
+    const words = currentSentence.sentence_text.split(/\s+/).filter(Boolean)
+    const norm = (w: string) => {
+      let s = w
+      if (ignoreCase) s = s.toLowerCase()
+      if (ignorePunctuation) s = s.replace(/[^\w\s]/g, '')
+      return s
+    }
+    return words.length === wordInputs.length &&
+      words.every((w, i) => norm(w) === norm(wordInputs[i] ?? ''))
+  })()
 
   // Reset per-word inputs and hint when current sentence changes
   useEffect(() => {
@@ -861,6 +874,17 @@ export default function Workspace() {
           {/* Middle Panel - Per-word input (subtitle hidden, one input per word) */}
           <div className="flex-1 p-4 overflow-y-auto bg-white">
             {currentSentence ? (() => {
+              // When fully correct: show sentence in bold green, no editing
+              if (isCurrentSentenceFullyCorrect) {
+                return (
+                  <div className="max-w-4xl mx-auto">
+                    <div className="text-xl leading-relaxed font-bold text-green-600 flex flex-wrap items-baseline gap-x-2 gap-y-3">
+                      {currentSentence.sentence_text}
+                    </div>
+                    <p className="mt-3 text-sm text-green-600/80">✓ Correct. Waiting for next sentence…</p>
+                  </div>
+                )
+              }
               const words = currentSentence.sentence_text.split(/\s+/).filter(Boolean)
               return (
                 <div className="max-w-4xl mx-auto">
