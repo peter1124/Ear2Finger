@@ -28,6 +28,12 @@ interface Sentence {
   sentence_index: number
 }
 
+interface Notification {
+  id: string
+  type: 'success' | 'error' | 'info'
+  message: string
+}
+
 export default function Workspace() {
   const navigate = useNavigate()
   const audioRef = useRef<HTMLAudioElement>(null)
@@ -52,11 +58,11 @@ export default function Workspace() {
   const [ignorePunctuation, setIgnorePunctuation] = useState(true)
   const [ignoreCase, setIgnoreCase] = useState(true)
   const [repeatCount, setRepeatCount] = useState<number | '∞'>('∞')
-  const [userInput, setUserInput] = useState('')
   const [wordInputs, setWordInputs] = useState<string[]>([])
   const [wordHintIndex, setWordHintIndex] = useState<number | null>(null)
   const [scores, setScores] = useState({ correct: 22, partial: 1, incorrect: 1 })
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
+  const [notifications, setNotifications] = useState<Notification[]>([])
 
   // Load playlists and lessons on component mount
   useEffect(() => {
@@ -114,6 +120,33 @@ export default function Workspace() {
     }
   }
 
+  const pushNotification = (type: Notification['type'], message: string) => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    setNotifications((prev) => [...prev, { id, type, message }])
+    setTimeout(() => {
+      setNotifications((prev) => prev.filter((note) => note.id !== id))
+    }, 5000)
+  }
+
+  const runImportInBackground = async (payload: { url: string; playlistId: number }) => {
+    pushNotification('info', 'Import started. You can keep using the app.')
+    try {
+      const processResponse = await axios.post('http://localhost:8000/api/youtube/process', {
+        url: payload.url
+      })
+      const videoId = processResponse.data.video_id
+      await axios.post(`http://localhost:8000/api/playlists/${payload.playlistId}/videos/${videoId}`)
+      pushNotification('success', 'Import complete. Video added to playlist.')
+      await fetchPlaylists()
+      if (selectedPlaylistId === payload.playlistId) {
+        await fetchLessons()
+      }
+    } catch (err: unknown) {
+      const message = axios.isAxiosError(err) ? err.response?.data?.detail : null
+      pushNotification('error', message || 'Import failed. Please try again.')
+    }
+  }
+
   const fetchSentences = async (videoId: number) => {
     try {
       const response = await axios.get(`http://localhost:8000/api/youtube/videos/${videoId}/sentences`)
@@ -127,7 +160,6 @@ export default function Workspace() {
   const handleLessonSelect = (lesson: Lesson) => {
     setSelectedLesson(lesson)
     fetchSentences(lesson.video_id)
-    setUserInput('')
     setCurrentTime(0)
     setCurrentSentenceIndex(0)
     setIsPlaying(false)
@@ -157,8 +189,6 @@ export default function Workspace() {
     const updateTime = () => {
       const t = audio.currentTime
       setCurrentTime(t)
-      // Do not sync sentence index from playhead here – it was causing next/prev to be overwritten.
-      // Index is only changed by prev/next buttons and by the sentence-by-sentence effect.
     }
 
     audio.addEventListener('timeupdate', updateTime)
@@ -179,7 +209,6 @@ export default function Workspace() {
       if (!isPlaying) return
 
       const nextSentence = sentences[currentSentenceIndex + 1]
-      // Prefer explicit end_time if available; otherwise fall back to next sentence's start, or total duration
       const endTime = nextSentence
             ? nextSentence.start_time
             : totalDuration
@@ -256,7 +285,6 @@ export default function Workspace() {
               setCurrentSentenceIndex(0)
               audioEl.currentTime = 0
               setCurrentTime(0)
-              // stay paused (isPlaying already false)
             }
           }
         }, pauseInterval * 1000)
@@ -294,7 +322,6 @@ export default function Workspace() {
     const intervalId = setInterval(checkSentenceEnd, 50) // Check more frequently for better accuracy
     return () => {
       clearInterval(intervalId)
-      // Don't clear the pause-interval timeout when we're in the middle of it (simulated pause)
       if (intervalTimeoutRef.current && !isWaitingForPauseIntervalRef.current) {
         clearTimeout(intervalTimeoutRef.current)
         intervalTimeoutRef.current = null
@@ -302,8 +329,7 @@ export default function Workspace() {
     }
   }, [currentSentenceIndex, sentences, isPlaying, pauseInterval, repeatCount, selectedLesson?.duration, wordInputs, ignoreCase, ignorePunctuation])
 
-  // Sync and reset run BEFORE play effect so that position is set first; play effect then only plays and does not overwrite (e.g. to 0).
-  // Keep audio progress in sync with current subtitle: seek to current sentence's start_time when subtitle changes. Skip when change came from playback (timeupdate), user clicking prev/next, or pause-interval timeout (we already seeked there).
+  // Keep audio progress in sync with current subtitle: seek to current sentence's start_time when subtitle changes.
   useEffect(() => {
     if (!audioRef.current || !sentences.length) return
     const sentence = sentences[currentSentenceIndex]
@@ -324,7 +350,7 @@ export default function Workspace() {
     setCurrentTime(sentence.start_time)
   }, [currentSentenceIndex, sentences])
 
-  // Reset when sentences change (e.g. new lesson loaded). Only reset position when not playing so we don't interrupt playback if sentences reference changes unexpectedly.
+  // Reset when sentences change.
   useEffect(() => {
     if (sentences.length > 0 && !isPlaying) {
       setCurrentSentenceIndex(0)
@@ -333,22 +359,19 @@ export default function Workspace() {
         audioRef.current.currentTime = sentences[0].start_time
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only run on sentences change; isPlaying is read to avoid reset during playback
   }, [sentences])
 
-  // Handle play/pause (runs after sync/reset so position is already set; for sentence 0 we never seek here to avoid overwriting with 0)
+  // Handle play/pause
   useEffect(() => {
     const audio = audioRef.current
     if (!audio || !sentences.length) return
 
     if (isPlaying) {
-      // User (or timer) clicked play: cancel any pending pause-interval timeout so it doesn't double-fire
       if (intervalTimeoutRef.current) {
         clearTimeout(intervalTimeoutRef.current)
         intervalTimeoutRef.current = null
       }
       isWaitingForPauseIntervalRef.current = false
-      // Skip seek when we just set position in the pause-interval timeout so play effect doesn't overwrite (e.g. to 0)
       if (programmaticSeekRef.current) {
         programmaticSeekRef.current = false
         audio.play()
@@ -356,7 +379,6 @@ export default function Workspace() {
       }
       const currentSentence = sentences[currentSentenceIndex]
       if (currentSentence) {
-        // Only seek when past sentence 0; for index 0 rely on sync/reset so we never set currentTime to 0 here
         if (currentSentenceIndex > 0 && audio.currentTime < currentSentence.start_time) {
           audio.currentTime = currentSentence.start_time
         }
@@ -383,7 +405,7 @@ export default function Workspace() {
   const totalDuration = selectedLesson?.duration || 0
   const sentenceCount = sentences.length
 
-  // Check if current sentence is fully correct (same normalization as playback logic)
+  // Check if current sentence is fully correct
   const isCurrentSentenceFullyCorrect = currentSentence && (() => {
     const words = currentSentence.sentence_text.split(/\s+/).filter(Boolean)
     const norm = (w: string) => {
@@ -407,7 +429,6 @@ export default function Workspace() {
     setWordInputs(words.map(() => ''))
     setWordHintIndex(null)
     wordInputRefs.current = []
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only reset when sentence index/id changes
   }, [currentSentenceIndex, currentSentence?.id])
 
   // When switching to a new sentence, focus the first word input (not when repeating the same sentence)
@@ -610,7 +631,7 @@ export default function Workspace() {
 
             <div className="flex items-center gap-4 mb-4">
               {/* Media Player */}
-              <div className="flex-1 flex items-center gap-4">
+              <div className="flex-1 flex items-center gap-2">
                 <button
                   onClick={() => {
                     if (currentSentenceIndex > 0) {
@@ -678,52 +699,24 @@ export default function Workspace() {
                     <path d="M4.555 5.168A1 1 0 003 6v8a1 1 0 001.555.832L10 11.202V14a1 1 0 001.555.832l6-4a1 1 0 000-1.664l-6-4A1 1 0 0011 6v2.798l-5.445-3.63z" />
                   </svg>
                 </button>
-                <div className="flex-1 flex items-center gap-2">
+                <div className="flex-1 flex items-center gap-2 min-w-0">
                   <div
-                    className="flex-1 h-2 rounded-full overflow-hidden flex pointer-events-none"
+                    className="flex-1 min-w-0 h-2 rounded-full overflow-hidden relative pointer-events-none"
                     aria-hidden
                   >
-                    {sentenceCount > 0 ? (
-                      sentences.map((s, i) => {
-                        const start = s.start_time
-                        const end = i + 1 < sentences.length ? sentences[i + 1].start_time : totalDuration
-                        const segmentDuration = end - start
-                        const fillPercent =
-                          currentTime <= start
-                            ? 0
-                            : segmentDuration <= 0 || currentTime >= end
-                              ? 100
-                              : (100 * (currentTime - start)) / segmentDuration
-                        return (
-                          <div
-                            key={i}
-                            className="relative flex-1 min-w-0 h-full"
-                            style={{ width: `${100 / sentenceCount}%` }}
-                          >
-                            <div className="absolute inset-0 bg-gray-200" />
-                            <div
-                              className="absolute inset-0 bg-indigo-600 transition-all origin-left"
-                              style={{ width: `${fillPercent}%` }}
-                            />
-                            {i > 0 && (
-                              <div className="absolute left-0 top-0 w-px h-full bg-gray-300 z-10" />
-                            )}
-                          </div>
-                        )
-                      })
-                    ) : (
-                      <div className="flex-1 h-full bg-gray-200 rounded-full overflow-hidden relative">
-                        <div
-                          className="absolute inset-y-0 left-0 bg-indigo-600 transition-all rounded-full"
-                          style={{ width: `${totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0}%` }}
-                        />
-                      </div>
-                    )}
+                    <div className="absolute inset-0 bg-gray-200 rounded-full" />
+                    <div
+                      className="absolute inset-y-0 left-0 bg-indigo-600 rounded-full origin-left"
+                      style={{
+                        width: `${totalDuration > 0 ? Math.min(100, (currentTime / totalDuration) * 100) : 0}%`,
+                        transition: 'width 0.2s linear'
+                      }}
+                    />
                   </div>
                   <span className="text-sm text-gray-600 min-w-[3rem]">
                     {formatTime(currentTime)} / {formatTime(totalDuration)}
                     {sentenceCount > 0 && (
-                      <span className="ml-2 text-gray-500 bg-gray-100 rounded-full px-2 py-1">
+                      <span className="ml-2 text-gray-500 bg-gray-200 text-xs rounded-full px-2 py-1">
                         {currentSentenceIndex + 1} / {sentenceCount}
                       </span>
                     )}
@@ -871,17 +864,17 @@ export default function Workspace() {
             </div>
           </div>
 
-          {/* Middle Panel - Per-word input (subtitle hidden, one input per word) */}
+          {/* Text Input Panel - Per-word input */}
           <div className="flex-1 p-4 overflow-y-auto bg-white">
             {currentSentence ? (() => {
               // When fully correct: show sentence in bold green, no editing
               if (isCurrentSentenceFullyCorrect) {
                 return (
                   <div className="max-w-4xl mx-auto">
-                    <div className="text-xl leading-relaxed font-bold text-green-600 flex flex-wrap items-baseline gap-x-2 gap-y-3">
+                    <p className="flex mt-3 text-sm text-green-600/80">✔ Correct</p>
+                    <div className="text-xl leading-relaxed font-bold text-green-600 flex flex-wrap items-baseline gap-x-2 gap-y-3" style={{ fontSize: '2.2em' }}>
                       {currentSentence.sentence_text}
                     </div>
-                    <p className="mt-3 text-sm text-green-600/80">✓ Correct. Waiting for next sentence…</p>
                   </div>
                 )
               }
@@ -954,7 +947,7 @@ export default function Workspace() {
                               }
                             }}
                             className={`bg-transparent border-0 outline-none px-0.5 py-0 min-w-0 ${underlineClass} ${isHintShown ? 'text-gray-400' : 'text-gray-900'}`}
-                            style={{ minWidth: `${Math.max(2, word.length)}ch` }}
+                            style={{ maxWidth: `${Math.max(2, word.length*1.2)}ch`, fontSize: '1.8em' }}
                             aria-label={`Word ${idx + 1}`}
                             autoComplete="off"
                             spellCheck={false}
@@ -979,14 +972,28 @@ export default function Workspace() {
       <ImportModal
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
-        onSuccess={() => {
-          fetchPlaylists()
-          if (selectedPlaylistId) {
-            fetchLessons()
-          }
-        }}
+        onImport={runImportInBackground}
         defaultPlaylistId={selectedPlaylistId}
       />
+
+      {/* Notifications */}
+      <div className="fixed top-4 right-4 z-[60] space-y-2">
+        {notifications.map((note) => (
+          <div
+            key={note.id}
+            className={`min-w-[260px] rounded-lg shadow-lg border px-4 py-3 text-sm font-medium ${
+              note.type === 'success'
+                ? 'bg-green-50 text-green-800 border-green-200'
+                : note.type === 'error'
+                  ? 'bg-red-50 text-red-800 border-red-200'
+                  : 'bg-indigo-50 text-indigo-800 border-indigo-200'
+            }`}
+            role="status"
+          >
+            {note.message}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
