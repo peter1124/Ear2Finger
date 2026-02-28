@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import axios from 'axios'
+import { api } from '../api'
 
 interface Playlist {
   id: number
@@ -35,7 +35,7 @@ export default function ImportModal({ isOpen, onClose, onImport, defaultPlaylist
 
   const fetchPlaylists = async () => {
     try {
-      const response = await axios.get('http://localhost:8000/api/playlists')
+      const response = await api.get('/api/playlists')
       setPlaylists(response.data)
       if (response.data.length > 0 && !selectedPlaylistId) {
         setSelectedPlaylistId(defaultPlaylistId || response.data[0].id)
@@ -55,7 +55,7 @@ export default function ImportModal({ isOpen, onClose, onImport, defaultPlaylist
     setError(null)
 
     try {
-      const response = await axios.post('http://localhost:8000/api/playlists', {
+      const response = await api.post('/api/playlists', {
         name: newPlaylistName.trim()
       })
       await fetchPlaylists()
@@ -63,7 +63,7 @@ export default function ImportModal({ isOpen, onClose, onImport, defaultPlaylist
       setNewPlaylistName('')
       setIsCreatingPlaylist(false)
     } catch (err: unknown) {
-      const message = axios.isAxiosError(err) ? err.response?.data?.detail : null
+      const message = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? null
       setError(message || 'Failed to create playlist')
       setIsCreatingPlaylist(false)
     }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import axios from 'axios'
+import { api } from '../api'
 
 interface Video {
   id: number
@@ -49,7 +49,7 @@ export default function YouTubeProcessor() {
     setProcessResult(null)
 
     try {
-      const response = await axios.post('http://localhost:8000/api/youtube/process', {
+      const response = await api.post('/api/youtube/process', {
         url: youtubeUrl.trim()
       })
       setProcessResult(response.data)
@@ -67,7 +67,7 @@ export default function YouTubeProcessor() {
   const fetchVideos = async () => {
     setLoadingVideos(true)
     try {
-      const response = await axios.get('http://localhost:8000/api/youtube/videos')
+      const response = await api.get('/api/youtube/videos')
       setVideos(response.data)
     } catch (err) {
       console.error('Error fetching videos:', err)
@@ -79,7 +79,7 @@ export default function YouTubeProcessor() {
   const fetchSentences = async (videoId: number) => {
     setLoadingSentences(true)
     try {
-      const response = await axios.get(`http://localhost:8000/api/youtube/videos/${videoId}/sentences`)
+      const response = await api.get(`/api/youtube/videos/${videoId}/sentences`)
       setSentences(response.data)
     } catch (err) {
       console.error('Error fetching sentences:', err)

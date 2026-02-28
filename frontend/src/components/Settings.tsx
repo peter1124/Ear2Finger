@@ -1,25 +1,137 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
+import { getConfig, setConfig, listUsers, createUser, updateUser, deleteUser, fetchMe, type AdminUser } from '../api'
 
-type SettingsSection = 'ai-api-key' | 'keyboard' | 'about' | 'version'
+type SettingsSection = 'ai-api-key' | 'keyboard' | 'about' | 'version' | 'users'
 
 export default function Settings() {
   const navigate = useNavigate()
+  const { user, logout, setUser } = useAuth()
   const [activeSection, setActiveSection] = useState<SettingsSection>('ai-api-key')
   const [aiVendor, setAiVendor] = useState('Gemini')
   const [apiKey, setApiKey] = useState('')
 
+  // User management (superuser only)
+  const [users, setUsers] = useState<AdminUser[]>([])
+  const [usersLoading, setUsersLoading] = useState(false)
+  const [usersError, setUsersError] = useState<string | null>(null)
+  const [userModalOpen, setUserModalOpen] = useState(false)
+  const [editingUser, setEditingUser] = useState<AdminUser | null>(null)
+  const [userForm, setUserForm] = useState({ username: '', email: '', password: '', is_superuser: false })
+  const [userFormSaving, setUserFormSaving] = useState(false)
+  const [userFormError, setUserFormError] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null)
+  const [deleteConfirming, setDeleteConfirming] = useState(false)
+
+  const isSuperuser = user?.is_superuser === true
+
+  const fetchUsers = useCallback(() => {
+    if (!isSuperuser) return
+    setUsersLoading(true)
+    setUsersError(null)
+    listUsers()
+      .then(setUsers)
+      .catch((e) => setUsersError(e.response?.data?.detail ?? 'Failed to load users'))
+      .finally(() => setUsersLoading(false))
+  }, [isSuperuser])
+
+  useEffect(() => {
+    getConfig()
+      .then((c) => {
+        if (c.ai_vendor) setAiVendor(c.ai_vendor)
+        if (c.api_key) setApiKey(c.api_key)
+      })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (activeSection === 'users' && isSuperuser) fetchUsers()
+  }, [activeSection, isSuperuser, fetchUsers])
+
+  const openAddUser = () => {
+    setEditingUser(null)
+    setUserForm({ username: '', email: '', password: '', is_superuser: false })
+    setUserFormError(null)
+    setUserModalOpen(true)
+  }
+
+  const openEditUser = (u: AdminUser) => {
+    setEditingUser(u)
+    setUserForm({ username: u.username, email: u.email ?? '', password: '', is_superuser: u.is_superuser })
+    setUserFormError(null)
+    setUserModalOpen(true)
+  }
+
+  const handleSaveUser = async () => {
+    setUserFormError(null)
+    setUserFormSaving(true)
+    try {
+      if (editingUser) {
+        await updateUser(editingUser.id, {
+          username: userForm.username.trim(),
+          email: userForm.email.trim() || undefined,
+          password: userForm.password || undefined,
+          is_superuser: userForm.is_superuser,
+        })
+      } else {
+        if (!userForm.password.trim()) {
+          setUserFormError('Password is required')
+          setUserFormSaving(false)
+          return
+        }
+        await createUser({
+          username: userForm.username.trim(),
+          email: userForm.email.trim() || undefined,
+          password: userForm.password,
+          is_superuser: userForm.is_superuser,
+        })
+      }
+      setUserModalOpen(false)
+      fetchUsers()
+      if (editingUser?.id === user?.id) {
+        fetchMe().then(setUser).catch(() => {})
+      }
+    } catch (e: unknown) {
+      const ax = e as { response?: { data?: { detail?: string | string[] } } }
+      const d = ax.response?.data?.detail
+      setUserFormError(Array.isArray(d) ? d.map((x: unknown) => (typeof x === 'object' && x && 'msg' in x ? (x as { msg?: string }).msg : String(x))).join(', ') : (d as string) ?? 'Failed to save')
+    } finally {
+      setUserFormSaving(false)
+    }
+  }
+
+  const handleDeleteUser = async () => {
+    if (!deleteTarget) return
+    setDeleteConfirming(true)
+    try {
+      await deleteUser(deleteTarget.id)
+      setDeleteTarget(null)
+      fetchUsers()
+      if (deleteTarget.id === user?.id) logout()
+    } catch (e: unknown) {
+      const ax = e as { response?: { data?: { detail?: string } } }
+      setUsersError(ax.response?.data?.detail ?? 'Failed to delete user')
+    } finally {
+      setDeleteConfirming(false)
+    }
+  }
+
   const settingsSections = [
     { id: 'ai-api-key' as SettingsSection, label: 'AI API-KEY' },
     { id: 'keyboard' as SettingsSection, label: 'KEYBOARD' },
+    ...(isSuperuser ? [{ id: 'users' as SettingsSection, label: 'USERS' }] : []),
     { id: 'about' as SettingsSection, label: 'ABOUT' },
     { id: 'version' as SettingsSection, label: 'VERSION' },
   ]
 
-  const handleApply = () => {
-    // Save settings logic here
-    console.log('Applying settings:', { aiVendor, apiKey })
-    // You can add API call here to save settings
+  const handleApply = async () => {
+    try {
+      await setConfig({ ai_vendor: aiVendor, api_key: apiKey || null })
+      console.log('Settings saved')
+    } catch (e) {
+      console.error('Failed to save settings', e)
+    }
   }
 
   const handleCancel = () => {
@@ -37,7 +149,7 @@ export default function Settings() {
         </div>
 
         <nav className="flex items-center gap-1">
-          <button 
+          <button
             onClick={() => navigate('/workspace')}
             className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-2"
           >
@@ -46,7 +158,7 @@ export default function Settings() {
             </svg>
             Workspace
           </button>
-          <button 
+          <button
             onClick={() => navigate('/dashboard')}
             className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-2"
           >
@@ -65,10 +177,13 @@ export default function Settings() {
         </nav>
 
         <div className="flex items-center gap-2 text-gray-700">
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-          </svg>
-          <span className="font-medium">Hang Yin</span>
+          <span className="font-medium">{user?.username ?? 'User'}</span>
+          <button
+            onClick={() => logout()}
+            className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
+          >
+            Sign out
+          </button>
         </div>
       </header>
 
@@ -125,7 +240,7 @@ export default function Settings() {
           {activeSection === 'ai-api-key' && (
             <div className="max-w-2xl">
               <h1 className="text-2xl font-bold text-gray-900 mb-6">AI API-KEY</h1>
-              
+
               <div className="space-y-6">
                 {/* AI Vendor Dropdown */}
                 <div>
@@ -202,8 +317,170 @@ export default function Settings() {
               </div>
             </div>
           )}
+
+          {activeSection === 'users' && isSuperuser && (
+            <div className="max-w-4xl">
+              <h1 className="text-2xl font-bold text-gray-900 mb-6">Users</h1>
+              {usersError && (
+                <div className="mb-4 text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{usersError}</div>
+              )}
+              <div className="mb-4">
+                <button
+                  type="button"
+                  onClick={openAddUser}
+                  className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800"
+                >
+                  Add user
+                </button>
+              </div>
+              {usersLoading ? (
+                <p className="text-gray-600">Loading users…</p>
+              ) : (
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  <table className="w-full text-left">
+                    <thead className="bg-gray-50 border-b border-gray-200">
+                      <tr>
+                        <th className="px-4 py-3 text-sm font-semibold text-gray-900">Username</th>
+                        <th className="px-4 py-3 text-sm font-semibold text-gray-900">Email</th>
+                        <th className="px-4 py-3 text-sm font-semibold text-gray-900">Superuser</th>
+                        <th className="px-4 py-3 text-sm font-semibold text-gray-900">Created</th>
+                        <th className="px-4 py-3 text-sm font-semibold text-gray-900 w-32">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {users.map((u) => (
+                        <tr key={u.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-gray-900">{u.username}</td>
+                          <td className="px-4 py-3 text-gray-600">{u.email ?? '—'}</td>
+                          <td className="px-4 py-3">{u.is_superuser ? 'Yes' : 'No'}</td>
+                          <td className="px-4 py-3 text-gray-600 text-sm">{u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}</td>
+                          <td className="px-4 py-3">
+                            <button
+                              type="button"
+                              onClick={() => openEditUser(u)}
+                              className="text-gray-700 hover:text-gray-900 mr-3"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeleteTarget(u)}
+                              className="text-red-600 hover:text-red-800"
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
         </main>
       </div>
+
+      {/* Add/Edit user modal */}
+      {userModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg max-w-md w-full p-6">
+            <h2 className="text-lg font-bold text-gray-900 mb-4">{editingUser ? 'Edit user' : 'Add user'}</h2>
+            {userFormError && (
+              <div className="mb-4 text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{userFormError}</div>
+            )}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                <input
+                  type="text"
+                  value={userForm.username}
+                  onChange={(e) => setUserForm((f) => ({ ...f, username: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email (optional)</label>
+                <input
+                  type="email"
+                  value={userForm.email}
+                  onChange={(e) => setUserForm((f) => ({ ...f, email: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Password {editingUser ? '(leave blank to keep)' : ''}
+                </label>
+                <input
+                  type="password"
+                  value={userForm.password}
+                  onChange={(e) => setUserForm((f) => ({ ...f, password: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  placeholder={editingUser ? '••••••••' : ''}
+                />
+              </div>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={userForm.is_superuser}
+                  onChange={(e) => setUserForm((f) => ({ ...f, is_superuser: e.target.checked }))}
+                  className="rounded border-gray-300"
+                />
+                <span className="text-sm text-gray-700">Superuser</span>
+              </label>
+            </div>
+            <div className="mt-6 flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setUserModalOpen(false)}
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveUser}
+                disabled={userFormSaving || !userForm.username.trim()}
+                className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:opacity-50"
+              >
+                {userFormSaving ? 'Saving…' : editingUser ? 'Update' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirmation modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-lg max-w-sm w-full p-6">
+            <h2 className="text-lg font-bold text-gray-900 mb-2">Delete user</h2>
+            <p className="text-gray-600 mb-4">
+              Delete user <strong>{deleteTarget.username}</strong>? This cannot be undone.
+              {deleteTarget.id === user?.id && ' You will be signed out.'}
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteUser}
+                disabled={deleteConfirming}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleteConfirming ? 'Deleting…' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -426,10 +426,13 @@ class YouTubeProcessor:
 
         return sentences
 
-    def process_youtube_video(self, youtube_url: str, db: Session) -> Dict:
+    def process_youtube_video(self, youtube_url: str, db: Session, user_id: int) -> Dict:
         """Process a YouTube video: extract, segment, and store in database"""
-        # Check if video already exists
-        existing_video = db.query(Video).filter(Video.youtube_url == youtube_url).first()
+        # Check if video already exists for this user
+        existing_video = db.query(Video).filter(
+            Video.user_id == user_id,
+            Video.youtube_url == youtube_url,
+        ).first()
         if existing_video:
             # Return existing video with its sentences
             sentences = db.query(Sentence).filter(Sentence.video_id == existing_video.id).order_by(Sentence.sentence_index).all()
@@ -460,6 +463,7 @@ class YouTubeProcessor:
 
         # Store in database
         video = Video(
+            user_id=user_id,
             youtube_url=youtube_url,
             title=video_info['title'],
             duration=video_info['duration'],

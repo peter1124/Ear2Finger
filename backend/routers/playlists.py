@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from database import get_db, Playlist, Video, PlaylistVideo, Sentence
-from datetime import datetime
+from database import get_db, Playlist, Video, PlaylistVideo, Sentence, User
+from auth import get_current_user
 
 router = APIRouter()
 
@@ -38,15 +38,19 @@ class PlaylistVideoResponse(BaseModel):
 @router.post("/playlists", response_model=PlaylistResponse)
 async def create_playlist(
     playlist: PlaylistCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Create a new playlist.
 
-    If a playlist with the same name already exists, return that instead of
+    If a playlist with the same name already exists for this user, return that instead of
     creating a duplicate. This makes playlist creation idempotent by name.
     """
-    # Check for existing playlist with the same name
-    existing = db.query(Playlist).filter(Playlist.name == playlist.name).first()
+    # Check for existing playlist with the same name for this user
+    existing = db.query(Playlist).filter(
+        Playlist.user_id == current_user.id,
+        Playlist.name == playlist.name,
+    ).first()
     if existing:
         video_count = db.query(PlaylistVideo).filter(
             PlaylistVideo.playlist_id == existing.id
@@ -58,7 +62,7 @@ async def create_playlist(
             'video_count': video_count
         }
 
-    new_playlist = Playlist(name=playlist.name)
+    new_playlist = Playlist(name=playlist.name, user_id=current_user.id)
     db.add(new_playlist)
     db.commit()
     db.refresh(new_playlist)
@@ -73,10 +77,11 @@ async def create_playlist(
 
 @router.get("/playlists", response_model=List[PlaylistResponse])
 async def get_playlists(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """Get all playlists"""
-    playlists = db.query(Playlist).all()
+    """Get all playlists for the current user"""
+    playlists = db.query(Playlist).filter(Playlist.user_id == current_user.id).all()
     result = []
     for playlist in playlists:
         video_count = db.query(PlaylistVideo).filter(PlaylistVideo.playlist_id == playlist.id).count()
@@ -92,10 +97,14 @@ async def get_playlists(
 @router.get("/playlists/{playlist_id}", response_model=PlaylistResponse)
 async def get_playlist(
     playlist_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Get a specific playlist"""
-    playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
+    playlist = db.query(Playlist).filter(
+        Playlist.id == playlist_id,
+        Playlist.user_id == current_user.id,
+    ).first()
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
 
@@ -111,10 +120,14 @@ async def get_playlist(
 @router.get("/playlists/{playlist_id}/videos", response_model=List[PlaylistVideoResponse])
 async def get_playlist_videos(
     playlist_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Get videos in a playlist"""
-    playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
+    playlist = db.query(Playlist).filter(
+        Playlist.id == playlist_id,
+        Playlist.user_id == current_user.id,
+    ).first()
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
 
@@ -145,14 +158,21 @@ async def get_playlist_videos(
 async def add_video_to_playlist(
     playlist_id: int,
     video_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Add a video to a playlist"""
-    playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
+    playlist = db.query(Playlist).filter(
+        Playlist.id == playlist_id,
+        Playlist.user_id == current_user.id,
+    ).first()
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
 
-    video = db.query(Video).filter(Video.id == video_id).first()
+    video = db.query(Video).filter(
+        Video.id == video_id,
+        Video.user_id == current_user.id,
+    ).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
@@ -187,9 +207,16 @@ async def add_video_to_playlist(
 async def remove_video_from_playlist(
     playlist_id: int,
     video_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Remove a video from a playlist"""
+    playlist = db.query(Playlist).filter(
+        Playlist.id == playlist_id,
+        Playlist.user_id == current_user.id,
+    ).first()
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
     playlist_video = db.query(PlaylistVideo).filter(
         PlaylistVideo.playlist_id == playlist_id,
         PlaylistVideo.video_id == video_id
@@ -207,10 +234,14 @@ async def remove_video_from_playlist(
 @router.delete("/playlists/{playlist_id}")
 async def delete_playlist(
     playlist_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Delete a playlist"""
-    playlist = db.query(Playlist).filter(Playlist.id == playlist_id).first()
+    playlist = db.query(Playlist).filter(
+        Playlist.id == playlist_id,
+        Playlist.user_id == current_user.id,
+    ).first()
     if not playlist:
         raise HTTPException(status_code=404, detail="Playlist not found")
 

@@ -3,7 +3,8 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, HttpUrl, field_validator
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from database import get_db, Video, Sentence
+from database import get_db, Video, Sentence, User
+from auth import get_current_user
 from services.youtube_processor import YouTubeProcessor
 import re
 import os
@@ -63,11 +64,12 @@ class ProcessVideoResponse(BaseModel):
 @router.post("/youtube/process", response_model=ProcessVideoResponse)
 async def process_youtube_video(
     request: YouTubeUrlRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Process a YouTube video: extract subtitles and segment into sentences"""
     try:
-        result = processor.process_youtube_video(request.url, db)
+        result = processor.process_youtube_video(request.url, db, user_id=current_user.id)
         return ProcessVideoResponse(**result)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -79,10 +81,11 @@ async def process_youtube_video(
 async def get_videos(
     skip: int = 0,
     limit: int = 100,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """Get all processed videos"""
-    videos = db.query(Video).offset(skip).limit(limit).all()
+    """Get all processed videos for the current user"""
+    videos = db.query(Video).filter(Video.user_id == current_user.id).offset(skip).limit(limit).all()
     result = []
     for video in videos:
         sentence_count = db.query(Sentence).filter(Sentence.video_id == video.id).count()
@@ -97,10 +100,14 @@ async def get_videos(
 @router.get("/youtube/videos/{video_id}", response_model=VideoResponse)
 async def get_video(
     video_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Get a specific video"""
-    video = db.query(Video).filter(Video.id == video_id).first()
+    video = db.query(Video).filter(
+        Video.id == video_id,
+        Video.user_id == current_user.id,
+    ).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
     
@@ -117,10 +124,14 @@ async def get_video_sentences(
     video_id: int,
     skip: int = 0,
     limit: int = 1000,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Get sentences for a specific video"""
-    video = db.query(Video).filter(Video.id == video_id).first()
+    video = db.query(Video).filter(
+        Video.id == video_id,
+        Video.user_id == current_user.id,
+    ).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
     
@@ -172,9 +183,13 @@ async def get_video_audio(
     video_id: int,
     request: Request,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Get the audio file for a specific video. Supports Range requests for seeking."""
-    video = db.query(Video).filter(Video.id == video_id).first()
+    video = db.query(Video).filter(
+        Video.id == video_id,
+        Video.user_id == current_user.id,
+    ).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
     
@@ -192,10 +207,14 @@ async def get_video_audio(
 @router.delete("/youtube/videos/{video_id}")
 async def delete_video(
     video_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Delete a video, its sentences, and audio file"""
-    video = db.query(Video).filter(Video.id == video_id).first()
+    video = db.query(Video).filter(
+        Video.id == video_id,
+        Video.user_id == current_user.id,
+    ).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
     

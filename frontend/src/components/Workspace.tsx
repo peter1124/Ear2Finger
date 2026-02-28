@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import axios from 'axios'
+import { api } from '../api'
+import { useAuth } from '../contexts/AuthContext'
 import ImportModal from './ImportModal'
 
 interface Playlist {
@@ -36,6 +37,7 @@ interface Notification {
 
 export default function Workspace() {
   const navigate = useNavigate()
+  const { user, logout } = useAuth()
   const audioRef = useRef<HTMLAudioElement>(null)
   const intervalTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isWaitingForPauseIntervalRef = useRef(false)
@@ -60,9 +62,10 @@ export default function Workspace() {
   const [repeatCount, setRepeatCount] = useState<number | '∞'>('∞')
   const [wordInputs, setWordInputs] = useState<string[]>([])
   const [wordHintIndex, setWordHintIndex] = useState<number | null>(null)
-  const [scores, setScores] = useState({ correct: 22, partial: 1, incorrect: 1 })
+  const [scores] = useState({ correct: 22, partial: 1, incorrect: 1 })
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>([])
+  const [audioBlobUrl, setAudioBlobUrl] = useState<string | null>(null)
 
   // Load playlists and lessons on component mount
   useEffect(() => {
@@ -75,15 +78,46 @@ export default function Workspace() {
     }
   }, [selectedPlaylistId])
 
+  // Fetch audio as blob so the request includes auth header
+  const audioBlobUrlRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!selectedLesson?.audio_file_path || !selectedLesson?.video_id) {
+      if (audioBlobUrlRef.current) {
+        URL.revokeObjectURL(audioBlobUrlRef.current)
+        audioBlobUrlRef.current = null
+      }
+      setAudioBlobUrl(null)
+      return
+    }
+    let cancelled = false
+    api.get(`/api/youtube/videos/${selectedLesson.video_id}/audio`, { responseType: 'blob' })
+      .then((res) => {
+        if (cancelled) return
+        if (audioBlobUrlRef.current) URL.revokeObjectURL(audioBlobUrlRef.current)
+        const url = URL.createObjectURL(res.data as Blob)
+        audioBlobUrlRef.current = url
+        setAudioBlobUrl(url)
+      })
+      .catch(() => !cancelled && setAudioBlobUrl(null))
+    return () => {
+      cancelled = true
+      if (audioBlobUrlRef.current) {
+        URL.revokeObjectURL(audioBlobUrlRef.current)
+        audioBlobUrlRef.current = null
+      }
+      setAudioBlobUrl(null)
+    }
+  }, [selectedLesson?.video_id, selectedLesson?.audio_file_path])
+
   const fetchPlaylists = async () => {
     try {
-      const response = await axios.get('http://localhost:8000/api/playlists')
+      const response = await api.get('/api/playlists')
       setPlaylists(response.data)
       if (response.data.length > 0 && !selectedPlaylistId) {
         setSelectedPlaylistId(response.data[0].id)
       } else if (response.data.length === 0) {
         // Create default playlist if none exists
-        const defaultPlaylist = await axios.post('http://localhost:8000/api/playlists', {
+        const defaultPlaylist = await api.post('/api/playlists', {
           name: 'Default Playlist'
         })
         setPlaylists([defaultPlaylist.data])
@@ -98,8 +132,8 @@ export default function Workspace() {
     if (!selectedPlaylistId) return
 
     try {
-      const response = await axios.get(`http://localhost:8000/api/playlists/${selectedPlaylistId}/videos`)
-      const videos = response.data.map((item: any) => ({
+      const response = await api.get(`/api/playlists/${selectedPlaylistId}/videos`)
+      const videos = response.data.map((item: { id: number; video_id: number; title?: string; duration?: number; sentence_count?: number; audio_file_path?: string }) => ({
         id: item.id,
         video_id: item.video_id,
         title: item.title || 'Untitled Video',
@@ -131,25 +165,25 @@ export default function Workspace() {
   const runImportInBackground = async (payload: { url: string; playlistId: number }) => {
     pushNotification('info', 'Import started. You can keep using the app.')
     try {
-      const processResponse = await axios.post('http://localhost:8000/api/youtube/process', {
+      const processResponse = await api.post('/api/youtube/process', {
         url: payload.url
       })
       const videoId = processResponse.data.video_id
-      await axios.post(`http://localhost:8000/api/playlists/${payload.playlistId}/videos/${videoId}`)
+      await api.post(`/api/playlists/${payload.playlistId}/videos/${videoId}`)
       pushNotification('success', 'Import complete. Video added to playlist.')
       await fetchPlaylists()
       if (selectedPlaylistId === payload.playlistId) {
         await fetchLessons()
       }
     } catch (err: unknown) {
-      const message = axios.isAxiosError(err) ? err.response?.data?.detail : null
+      const message = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? null
       pushNotification('error', message || 'Import failed. Please try again.')
     }
   }
 
   const fetchSentences = async (videoId: number) => {
     try {
-      const response = await axios.get(`http://localhost:8000/api/youtube/videos/${videoId}/sentences`)
+      const response = await api.get(`/api/youtube/videos/${videoId}/sentences`)
       setSentences(response.data)
       setCurrentSentenceIndex(0)
     } catch (err) {
@@ -534,10 +568,13 @@ export default function Workspace() {
         </nav>
 
         <div className="flex items-center gap-2 text-gray-700">
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-          </svg>
-          <span className="font-medium">Hang Yin</span>
+          <span className="font-medium">{user?.username ?? 'User'}</span>
+          <button
+            onClick={() => logout()}
+            className="px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 rounded-lg"
+          >
+            Sign out
+          </button>
         </div>
       </header>
 
@@ -618,7 +655,7 @@ export default function Workspace() {
             {selectedLesson && (
               <audio
                 ref={audioRef}
-                src={selectedLesson.audio_file_path ? `http://localhost:8000/api/youtube/videos/${selectedLesson.video_id}/audio` : undefined}
+                src={audioBlobUrl ?? undefined}
                 onEnded={() => {
                   setIsPlaying(false)
                 }}

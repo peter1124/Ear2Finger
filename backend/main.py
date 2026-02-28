@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import health, dictation, youtube, playlists
+from routers import health, dictation, youtube, playlists, auth, user_config, learning_progress, users
 from database import init_db
 
 app = FastAPI(
@@ -28,6 +28,10 @@ app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(dictation.router, prefix="/api", tags=["dictation"])
 app.include_router(youtube.router, prefix="/api", tags=["youtube"])
 app.include_router(playlists.router, prefix="/api", tags=["playlists"])
+app.include_router(auth.router, prefix="/api", tags=["auth"])
+app.include_router(user_config.router, prefix="/api", tags=["user"])
+app.include_router(learning_progress.router, prefix="/api", tags=["user"])
+app.include_router(users.router, prefix="/api", tags=["users"])
 
 
 @app.get("/")
