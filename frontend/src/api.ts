@@ -165,3 +165,45 @@ export async function getConfig(): Promise<Record<string, string>> {
 export async function setConfig(config: Record<string, string | number | boolean | null>) {
   await api.put('/api/user/config', config)
 }
+
+export interface LessonSessionRecord {
+  id: number
+  video_id: number
+  started_at: string
+  ended_at: string | null
+  sentences_practiced: number
+  correct_chars: number
+  hint_count: number
+  incorrect_chars: number
+}
+
+export async function getLessonSessions(videoId: number): Promise<LessonSessionRecord[]> {
+  const { data } = await api.get<LessonSessionRecord[]>(`/api/lessons/${videoId}/sessions`)
+  return data
+}
+
+export async function saveLessonSession(body: {
+  video_id: number
+  started_at: string
+  ended_at?: string | null
+  sentences_practiced: number
+  correct_chars: number
+  hint_count: number
+  incorrect_chars: number
+}): Promise<LessonSessionRecord> {
+  const { data } = await api.post<LessonSessionRecord>('/api/user/lesson-sessions', body)
+  return data
+}
+
+export async function upsertCurrentLessonSession(body: {
+  video_id: number
+  started_at: string
+  ended_at?: string | null
+  sentences_practiced: number
+  correct_chars: number
+  hint_count: number
+  incorrect_chars: number
+}): Promise<LessonSessionRecord> {
+  const { data } = await api.put<LessonSessionRecord>('/api/user/lesson-sessions/current', body)
+  return data
+}

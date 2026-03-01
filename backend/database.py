@@ -36,6 +36,7 @@ class User(Base):
     videos = relationship("Video", back_populates="user", cascade="all, delete-orphan")
     configs = relationship("UserConfig", back_populates="user", cascade="all, delete-orphan")
     learning_progress = relationship("LearningProgress", back_populates="user", cascade="all, delete-orphan")
+    lesson_sessions = relationship("LessonSession", back_populates="user", cascade="all, delete-orphan")
 
 
 class Playlist(Base):
@@ -121,6 +122,24 @@ class Sentence(Base):
 
     # Relationships
     video = relationship("Video", back_populates="sentences")
+
+
+class LessonSession(Base):
+    """One practice session for a lesson (video). History entry with scores."""
+    __tablename__ = "lesson_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    video_id = Column(Integer, ForeignKey("videos.id"), nullable=False, index=True)
+    started_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    ended_at = Column(DateTime, nullable=True)  # null = incomplete (Resume)
+    sentences_practiced = Column(Integer, nullable=False, default=0)
+    correct_chars = Column(Integer, nullable=False, default=0)
+    hint_count = Column(Integer, nullable=False, default=0)
+    incorrect_chars = Column(Integer, nullable=False, default=0)
+
+    user = relationship("User", back_populates="lesson_sessions")
+    video = relationship("Video", backref="lesson_sessions")
 
 
 def init_db():

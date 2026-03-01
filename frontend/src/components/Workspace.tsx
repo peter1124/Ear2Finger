@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api } from '../api'
+import { api, upsertCurrentLessonSession, saveLessonSession } from '../api'
 import { useAuth } from '../contexts/AuthContext'
 import { useWorkspace, type Lesson } from '../contexts/WorkspaceContext'
 import ImportModal from './ImportModal'
+import LessonHistory from './LessonHistory'
 
 interface Notification {
   id: string
@@ -68,6 +69,8 @@ export default function Workspace() {
   const prevSentencesIdentityRef = useRef<string | null>(null)
   const prevSentenceKeyRef = useRef<number | null>(null)
   const prevVideoIdForScoresRef = useRef<number | null>(null)
+  const sessionStartedAtRef = useRef<string>(new Date().toISOString())
+  const sessionSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>([])
@@ -98,8 +101,10 @@ export default function Workspace() {
     if (prevVideoIdForScoresRef.current === videoId) return
     const hadPreviousVideo = prevVideoIdForScoresRef.current !== null
     prevVideoIdForScoresRef.current = videoId
+    if (selectedLesson) sessionStartedAtRef.current = new Date().toISOString()
     if (hadPreviousVideo && videoId !== null) resetVideoSessionScores()
   }, [selectedLesson?.video_id, resetVideoSessionScores])
+
 
   // Fetch audio as blob so the request includes auth header
   const audioBlobUrlRef = useRef<string | null>(null)
@@ -214,6 +219,22 @@ export default function Workspace() {
   }
 
   const handleLessonSelect = (lesson: Lesson) => {
+    if (
+      selectedLesson &&
+      lesson.video_id !== selectedLesson.video_id &&
+      (currentSentenceIndex >= 1 || isCurrentSentenceFullyCorrect)
+    ) {
+      saveLessonSession({
+        video_id: selectedLesson.video_id,
+        started_at: sessionStartedAtRef.current,
+        ended_at: new Date().toISOString(),
+        sentences_practiced: currentSentenceIndex + 1,
+        correct_chars: videoSessionScores.correctChars,
+        hint_count: videoSessionScores.hintCount,
+        incorrect_chars: videoSessionScores.incorrectChars,
+      }).catch(() => {})
+    }
+    sessionStartedAtRef.current = new Date().toISOString()
     setSelectedLesson(lesson)
     fetchSentences(lesson.video_id)
     setCurrentTime(0)
@@ -479,6 +500,39 @@ export default function Workspace() {
       words.every((w, i) => norm(w) === norm(wordInputs[i] ?? ''))
   })()
 
+  const hasCompletedOneSentence =
+    sentences.length > 0 &&
+    (currentSentenceIndex >= 1 || Boolean(isCurrentSentenceFullyCorrect))
+
+  // Auto-save lesson session when at least one sentence has been completed.
+  useEffect(() => {
+    if (!selectedLesson || !hasCompletedOneSentence) return
+    const payload = {
+      video_id: selectedLesson.video_id,
+      started_at: sessionStartedAtRef.current,
+      ended_at: null as string | null,
+      sentences_practiced: currentSentenceIndex + 1,
+      correct_chars: videoSessionScores.correctChars,
+      hint_count: videoSessionScores.hintCount,
+      incorrect_chars: videoSessionScores.incorrectChars,
+    }
+    if (sessionSaveTimeoutRef.current) clearTimeout(sessionSaveTimeoutRef.current)
+    sessionSaveTimeoutRef.current = setTimeout(() => {
+      sessionSaveTimeoutRef.current = null
+      upsertCurrentLessonSession(payload).catch(() => {})
+    }, 800)
+    return () => {
+      if (sessionSaveTimeoutRef.current) clearTimeout(sessionSaveTimeoutRef.current)
+    }
+  }, [
+    selectedLesson?.id,
+    hasCompletedOneSentence,
+    currentSentenceIndex,
+    videoSessionScores.correctChars,
+    videoSessionScores.hintCount,
+    videoSessionScores.incorrectChars,
+  ])
+
   // Reset per-word inputs and hint when current sentence changes. Skip on initial mount to preserve restored progress.
   useEffect(() => {
     if (!currentSentence) {
@@ -501,13 +555,19 @@ export default function Workspace() {
     prevSentenceKeyRef.current = key
   }, [currentSentenceIndex, currentSentence?.id])
 
-  // When switching to a new sentence, focus the first word input (not when repeating the same sentence)
+  // When switching to a new sentence, focus the first word input after the new inputs are in the DOM.
   useEffect(() => {
     if (!currentSentence) return
-    const t = setTimeout(() => {
+    const t1 = setTimeout(() => {
       wordInputRefs.current[0]?.focus()
     }, 0)
-    return () => clearTimeout(t)
+    const t2 = setTimeout(() => {
+      wordInputRefs.current[0]?.focus()
+    }, 100)
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
+    }
   }, [currentSentenceIndex, currentSentence?.id])
 
   const normalizeWord = (w: string) => {
@@ -1090,14 +1150,20 @@ export default function Workspace() {
                                   setWordHintIndex(null)
                                   wordInputRefs.current[idx + 1]?.focus()
                                 } else {
-                                  setWordHintIndex(idx)
-                                  setVideoSessionScores((s) => ({ ...s, hintCount: s.hintCount + 1 }))
-                                  setWordHintUsed((prev) => {
-                                    const next = [...prev]
-                                    while (next.length <= idx) next.push(false)
-                                    next[idx] = true
-                                    return next
-                                  })
+                                  const currentVal = wordInputs[idx] ?? ''
+                                  const wordComplete = normalizeWord(currentVal) === normalizeWord(word)
+                                  if (wordComplete) {
+                                    wordInputRefs.current[idx + 1]?.focus()
+                                  } else {
+                                    setWordHintIndex(idx)
+                                    setVideoSessionScores((s) => ({ ...s, hintCount: s.hintCount + 1 }))
+                                    setWordHintUsed((prev) => {
+                                      const next = [...prev]
+                                      while (next.length <= idx) next.push(false)
+                                      next[idx] = true
+                                      return next
+                                    })
+                                  }
                                 }
                                 return
                               }
@@ -1148,6 +1214,16 @@ export default function Workspace() {
         onClose={() => setIsImportModalOpen(false)}
         onImport={runImportInBackground}
         defaultPlaylistId={selectedPlaylistId}
+      />
+
+      {/* Lesson History - bottom-right */}
+      <LessonHistory
+        videoId={selectedLesson?.video_id ?? null}
+        isLessonFinished={
+          sentences.length > 0 &&
+          currentSentenceIndex >= sentences.length - 1 &&
+          Boolean(isCurrentSentenceFullyCorrect)
+        }
       />
 
       {/* Notifications */}
