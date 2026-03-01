@@ -2,32 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { useAuth } from '../contexts/AuthContext'
+import { useWorkspace, type Lesson } from '../contexts/WorkspaceContext'
 import ImportModal from './ImportModal'
-
-interface Playlist {
-  id: number
-  name: string
-  created_at: string
-  video_count: number
-}
-
-interface Lesson {
-  id: number
-  video_id: number
-  title: string
-  duration: number
-  sentence_count: number
-  is_favorite?: boolean
-  audio_file_path?: string
-}
-
-interface Sentence {
-  id: number
-  sentence_text: string
-  start_time: number
-  end_time: number
-  sentence_index: number
-}
 
 interface Notification {
   id: string
@@ -38,6 +14,49 @@ interface Notification {
 export default function Workspace() {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
+  const ws = useWorkspace()
+  const {
+    playlists,
+    setPlaylists,
+    selectedPlaylistId,
+    setSelectedPlaylistId,
+    selectedLesson,
+    setSelectedLesson,
+    lessons,
+    setLessons,
+    sentences,
+    setSentences,
+    sentencesVideoId,
+    setSentencesVideoId,
+    currentSentenceIndex,
+    setCurrentSentenceIndex,
+    isPlaying,
+    setIsPlaying,
+    currentTime,
+    setCurrentTime,
+    playbackSpeed,
+    setPlaybackSpeed,
+    pauseInterval,
+    setPauseInterval,
+    ignorePunctuation,
+    setIgnorePunctuation,
+    ignoreCase,
+    setIgnoreCase,
+    repeatCount,
+    setRepeatCount,
+    wordInputs,
+    setWordInputs,
+    wordHintIndex,
+    setWordHintIndex,
+    wordHintUsed,
+    setWordHintUsed,
+    wordErrorChars,
+    setWordErrorChars,
+    videoSessionScores,
+    setVideoSessionScores,
+    resetVideoSessionScores,
+  } = ws
+
   const audioRef = useRef<HTMLAudioElement>(null)
   const intervalTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isWaitingForPauseIntervalRef = useRef(false)
@@ -46,23 +65,10 @@ export default function Workspace() {
   const userInitiatedSentenceChangeRef = useRef(false)
   const programmaticSeekRef = useRef(false)
   const wordInputRefs = useRef<(HTMLInputElement | null)[]>([])
+  const prevSentencesIdentityRef = useRef<string | null>(null)
+  const prevSentenceKeyRef = useRef<number | null>(null)
+  const prevVideoIdForScoresRef = useRef<number | null>(null)
 
-  const [playlists, setPlaylists] = useState<Playlist[]>([])
-  const [selectedPlaylistId, setSelectedPlaylistId] = useState<number | null>(null)
-  const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null)
-  const [lessons, setLessons] = useState<Lesson[]>([])
-  const [sentences, setSentences] = useState<Sentence[]>([])
-  const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0)
-  const [isPlaying, setIsPlaying] = useState(false)
-  const [currentTime, setCurrentTime] = useState(0)
-  const [playbackSpeed, setPlaybackSpeed] = useState(1)
-  const [pauseInterval, setPauseInterval] = useState(3)
-  const [ignorePunctuation, setIgnorePunctuation] = useState(true)
-  const [ignoreCase, setIgnoreCase] = useState(true)
-  const [repeatCount, setRepeatCount] = useState<number | '∞'>('∞')
-  const [wordInputs, setWordInputs] = useState<string[]>([])
-  const [wordHintIndex, setWordHintIndex] = useState<number | null>(null)
-  const [scores] = useState({ correct: 22, partial: 1, incorrect: 1 })
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [audioBlobUrl, setAudioBlobUrl] = useState<string | null>(null)
@@ -77,6 +83,23 @@ export default function Workspace() {
       fetchLessons()
     }
   }, [selectedPlaylistId])
+
+  // When we have a selected lesson but sentences for another video (or none), fetch sentences.
+  useEffect(() => {
+    if (!selectedLesson) return
+    if (sentencesVideoId === selectedLesson.video_id && sentences.length > 0) return
+    fetchSentences(selectedLesson.video_id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchSentences is stable enough; avoid refetch loop
+  }, [selectedLesson?.id, selectedLesson?.video_id, sentencesVideoId, sentences.length])
+
+  // Reset per-video session scores only when user switches to a different video, not on first load or remount.
+  useEffect(() => {
+    const videoId = selectedLesson?.video_id ?? null
+    if (prevVideoIdForScoresRef.current === videoId) return
+    const hadPreviousVideo = prevVideoIdForScoresRef.current !== null
+    prevVideoIdForScoresRef.current = videoId
+    if (hadPreviousVideo && videoId !== null) resetVideoSessionScores()
+  }, [selectedLesson?.video_id, resetVideoSessionScores])
 
   // Fetch audio as blob so the request includes auth header
   const audioBlobUrlRef = useRef<string | null>(null)
@@ -145,10 +168,8 @@ export default function Workspace() {
       setLessons(videos)
       if (videos.length > 0 && !selectedLesson) {
         setSelectedLesson(videos[0])
-        fetchSentences(videos[0].video_id)
-      } else if (videos.length === 0) {
-        setSelectedLesson(null)
       }
+      // Do not set selectedLesson to null when videos.length === 0, so we keep progress if the API returns empty (e.g. transient error)
     } catch (err) {
       console.error('Error fetching lessons:', err)
     }
@@ -185,6 +206,7 @@ export default function Workspace() {
     try {
       const response = await api.get(`/api/youtube/videos/${videoId}/sentences`)
       setSentences(response.data)
+      setSentencesVideoId(videoId)
       setCurrentSentenceIndex(0)
     } catch (err) {
       console.error('Error fetching sentences:', err)
@@ -384,16 +406,21 @@ export default function Workspace() {
     setCurrentTime(sentence.start_time)
   }, [currentSentenceIndex, sentences])
 
-  // Reset when sentences change.
+  // Reset to sentence 0 only when sentences actually change (e.g. new lesson). Do not reset on remount or Strict Mode double-invocation.
   useEffect(() => {
-    if (sentences.length > 0 && !isPlaying) {
+    if (sentences.length === 0) return
+    const identity = `${sentencesVideoId ?? ''}-${sentences.length}-${sentences[0]?.id ?? ''}`
+    if (prevSentencesIdentityRef.current === identity) return
+    const isNewSentences = prevSentencesIdentityRef.current !== null
+    prevSentencesIdentityRef.current = identity
+    if (isNewSentences && !isPlaying) {
       setCurrentSentenceIndex(0)
       repeatCountRef.current = 0
       if (audioRef.current) {
         audioRef.current.currentTime = sentences[0].start_time
       }
     }
-  }, [sentences])
+  }, [sentences, sentencesVideoId, isPlaying])
 
   // Handle play/pause
   useEffect(() => {
@@ -452,17 +479,26 @@ export default function Workspace() {
       words.every((w, i) => norm(w) === norm(wordInputs[i] ?? ''))
   })()
 
-  // Reset per-word inputs and hint when current sentence changes
+  // Reset per-word inputs and hint when current sentence changes. Skip on initial mount to preserve restored progress.
   useEffect(() => {
     if (!currentSentence) {
+      prevSentenceKeyRef.current = null
       setWordInputs([])
       setWordHintIndex(null)
+      setWordHintUsed([])
+      setWordErrorChars([])
       return
     }
-    const words = currentSentence.sentence_text.split(/\s+/).filter(Boolean)
-    setWordInputs(words.map(() => ''))
-    setWordHintIndex(null)
-    wordInputRefs.current = []
+    const key = currentSentence.id
+    if (prevSentenceKeyRef.current !== null && prevSentenceKeyRef.current !== key) {
+      const words = currentSentence.sentence_text.split(/\s+/).filter(Boolean)
+      setWordInputs(words.map(() => ''))
+      setWordHintIndex(null)
+      setWordHintUsed(words.map(() => false))
+      setWordErrorChars(words.map(() => 0))
+      wordInputRefs.current = []
+    }
+    prevSentenceKeyRef.current = key
   }, [currentSentenceIndex, currentSentence?.id])
 
   // When switching to a new sentence, focus the first word input (not when repeating the same sentence)
@@ -480,6 +516,67 @@ export default function Workspace() {
     if (ignorePunctuation) s = s.replace(/[^\w\s]/g, '')
     return s
   }
+
+  // Persist per-sentence learning progress whenever word inputs or hints change.
+  // This keeps backend stats in sync even if the user doesn't fully complete a sentence.
+  useEffect(() => {
+    if (!currentSentence || !selectedLesson) return
+    const words = currentSentence.sentence_text.split(/\s+/).filter(Boolean)
+    if (!words.length) return
+
+    const normalize = (w: string) => {
+      let s = w
+      if (ignoreCase) s = s.toLowerCase()
+      if (ignorePunctuation) s = s.replace(/[^\w\s]/g, '')
+      return s
+    }
+
+    const correctWords: string[] = []
+    const incorrectWords: string[] = []
+    const hintWords: string[] = []
+
+    words.forEach((w, idx) => {
+      const input = (wordInputs[idx] ?? '').trim()
+      if (!input) return
+      if (normalize(input) === normalize(w)) {
+        correctWords.push(w)
+      } else {
+        incorrectWords.push(w)
+      }
+      if (wordHintUsed[idx]) {
+        hintWords.push(w)
+      }
+    })
+
+    const data = {
+      attempts: 1,
+      total_words: words.length,
+      words,
+      correct_words: correctWords,
+      incorrect_words: incorrectWords,
+      hint_words: hintWords,
+      error_chars: wordErrorChars,
+      completed: Boolean(isCurrentSentenceFullyCorrect),
+    }
+
+    api
+      .post('/api/user/progress', {
+        video_id: selectedLesson.video_id,
+        sentence_id: currentSentence.id,
+        data,
+      })
+      .catch(() => {
+        // best-effort; failures will be retried on next change
+      })
+  }, [
+    currentSentence,
+    selectedLesson,
+    wordInputs,
+    wordHintUsed,
+    ignoreCase,
+    ignorePunctuation,
+    isCurrentSentenceFullyCorrect,
+  ])
 
   const getWordUnderlineClass = (targetWord: string, inputValue: string) => {
     if (inputValue.length === 0) return 'border-b-2 border-gray-300'
@@ -656,6 +753,11 @@ export default function Workspace() {
               <audio
                 ref={audioRef}
                 src={audioBlobUrl ?? undefined}
+                onLoadedMetadata={() => {
+                  if (audioRef.current != null && currentTime >= 0) {
+                    audioRef.current.currentTime = currentTime
+                  }
+                }}
                 onEnded={() => {
                   setIsPlaying(false)
                 }}
@@ -885,17 +987,17 @@ export default function Workspace() {
               </div>
 
               <div className="flex items-center gap-2 ml-auto">
-                <div className="flex items-center gap-1">
-                  <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                  <span className="text-sm text-gray-700">{scores.correct}</span>
+                <div className="flex items-center gap-1" title="Correct keystrokes in this video">
+                  <div className="w-3 h-3 bg-green-500 rounded-full" />
+                  <span className="text-sm text-gray-700">{videoSessionScores.correctChars}</span>
                 </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
-                  <span className="text-sm text-gray-700">{scores.partial}</span>
+                <div className="flex items-center gap-1" title="Hints used in this video">
+                  <div className="w-3 h-3 bg-yellow-500 rounded-full" />
+                  <span className="text-sm text-gray-700">{videoSessionScores.hintCount}</span>
                 </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-                  <span className="text-sm text-gray-700">{scores.incorrect}</span>
+                <div className="flex items-center gap-1" title="Incorrect keystrokes in this video">
+                  <div className="w-3 h-3 bg-red-500 rounded-full" />
+                  <span className="text-sm text-gray-700">{videoSessionScores.incorrectChars}</span>
                 </div>
               </div>
             </div>
@@ -934,6 +1036,26 @@ export default function Workspace() {
                             value={value}
                             onChange={(e) => {
                               const v = e.target.value
+                              const prev = wordInputs[idx] ?? ''
+                              // Count a wrong character event when the normalized prefix first diverges
+                              if (v.length > prev.length) {
+                                const targetNorm = normalizeWord(word)
+                                const prevNorm = normalizeWord(prev)
+                                const nextNorm = normalizeWord(v)
+                                const prevOk = targetNorm.startsWith(prevNorm)
+                                const nextOk = targetNorm.startsWith(nextNorm)
+                                if (prevOk && !nextOk) {
+                                  setWordErrorChars((prevArr) => {
+                                    const nextArr = [...prevArr]
+                                    while (nextArr.length <= idx) nextArr.push(0)
+                                    nextArr[idx] = (nextArr[idx] ?? 0) + 1
+                                    return nextArr
+                                  })
+                                  setVideoSessionScores((s) => ({ ...s, incorrectChars: s.incorrectChars + 1 }))
+                                } else if (prevOk && nextOk) {
+                                  setVideoSessionScores((s) => ({ ...s, correctChars: s.correctChars + 1 }))
+                                }
+                              }
                               if (isHintShown) {
                                 setWordHintIndex(null)
                                 setWordInputs((prev) => {
@@ -969,11 +1091,26 @@ export default function Workspace() {
                                   wordInputRefs.current[idx + 1]?.focus()
                                 } else {
                                   setWordHintIndex(idx)
+                                  setVideoSessionScores((s) => ({ ...s, hintCount: s.hintCount + 1 }))
+                                  setWordHintUsed((prev) => {
+                                    const next = [...prev]
+                                    while (next.length <= idx) next.push(false)
+                                    next[idx] = true
+                                    return next
+                                  })
                                 }
                                 return
                               }
                               if (wordHintIndex === idx && e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
                                 e.preventDefault()
+                                const targetNorm = normalizeWord(word)
+                                const keyNorm = normalizeWord(e.key)
+                                const isCorrectFirstChar = targetNorm.length > 0 && targetNorm[0] === keyNorm[0]
+                                setVideoSessionScores((s) =>
+                                  isCorrectFirstChar
+                                    ? { ...s, correctChars: s.correctChars + 1 }
+                                    : { ...s, incorrectChars: s.incorrectChars + 1 }
+                                )
                                 setWordHintIndex(null)
                                 setWordInputs((prev) => {
                                   const next = [...prev]

@@ -1,5 +1,6 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
+import { WorkspaceProvider } from './contexts/WorkspaceContext'
 import ProtectedRoute from './components/ProtectedRoute'
 import Login from './components/Login'
 import Register from './components/Register'
@@ -16,38 +17,21 @@ function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route
-            path="/workspace"
+            path="/"
             element={
               <ProtectedRoute>
-                <Workspace />
+                <WorkspaceProvider>
+                  <Outlet />
+                </WorkspaceProvider>
               </ProtectedRoute>
             }
-          />
-          <Route
-            path="/dashboard"
-            element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/settings"
-            element={
-              <ProtectedRoute>
-                <Settings />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/youtube"
-            element={
-              <ProtectedRoute>
-                <YouTubeProcessor />
-              </ProtectedRoute>
-            }
-          />
-          <Route path="/" element={<Navigate to="/workspace" replace />} />
+          >
+            <Route index element={<Navigate to="/workspace" replace />} />
+            <Route path="workspace" element={<Workspace />} />
+            <Route path="dashboard" element={<Dashboard />} />
+            <Route path="settings" element={<Settings />} />
+            <Route path="youtube" element={<YouTubeProcessor />} />
+          </Route>
         </Routes>
       </AuthProvider>
     </Router>

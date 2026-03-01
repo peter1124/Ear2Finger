@@ -49,6 +49,58 @@ export interface AdminUser {
   created_at: string | null
 }
 
+export interface DistributionStats {
+  mean: number
+  variance: number
+  p25: number
+  p50: number
+  p75: number
+}
+
+export interface WordStat {
+  word: string
+  total_count: number
+  incorrect_count: number
+  hint_count: number
+  incorrect_rate: number
+  hint_rate: number
+  error_char_count: number
+  error_char_rate: number
+  average_spell_retry_times: number
+}
+
+export interface DailyUserStats {
+  date: string
+  total_videos_practiced: number
+  total_sentences_practiced: number
+  total_attempts: number
+  total_words_seen: number
+  unique_words_seen: number
+  total_incorrect_words: number
+  total_hints_used: number
+  sentence_error_rate?: DistributionStats | null
+  sentence_hint_usage?: DistributionStats | null
+  sentence_length_words?: DistributionStats | null
+  word_length_chars?: DistributionStats | null
+}
+
+export interface UserStats {
+  total_videos_practiced: number
+  total_sentences_practiced: number
+  total_attempts: number
+  total_words_seen: number
+  unique_words_seen: number
+  total_incorrect_words: number
+  total_hints_used: number
+  sentence_error_rate?: DistributionStats | null
+  sentence_hint_usage?: DistributionStats | null
+  sentence_length_words?: DistributionStats | null
+  word_length_chars?: DistributionStats | null
+  top_incorrect_words: WordStat[]
+  top_hint_words: WordStat[]
+  daily: DailyUserStats[]
+}
+
 export async function listUsers(): Promise<AdminUser[]> {
   const { data } = await api.get<AdminUser[]>('/api/users')
   return data
@@ -72,6 +124,11 @@ export async function deleteUser(userId: number): Promise<void> {
 }
 
 const AUTH_TIMEOUT_MS = 15_000
+
+export async function getUserStats(): Promise<UserStats> {
+  const { data } = await api.get<UserStats>('/api/user/stats')
+  return data
+}
 
 export async function login(username: string, password: string): Promise<{ access_token: string; user: UserInfo }> {
   const { data } = await api.post<{ access_token: string; user: UserInfo }>(

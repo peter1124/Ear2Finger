@@ -1,9 +1,56 @@
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { getUserStats, type DailyUserStats, type UserStats, type WordStat } from '../api'
 
 export default function Dashboard() {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
+  const [stats, setStats] = useState<UserStats | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setLoading(true)
+    setError(null)
+    getUserStats()
+      .then(setStats)
+      .catch((e) => {
+        const err = e as { response?: { data?: { detail?: string } } }
+        setError(err.response?.data?.detail || 'Failed to load stats')
+      })
+      .finally(() => setLoading(false))
+  }, [])
+
+  const recentDaily = useMemo<DailyUserStats[]>(() => {
+    if (!stats?.daily) return []
+    const days = stats.daily.slice(-14) // last 14 days
+    return days
+  }, [stats])
+
+  const topIncorrect = useMemo<WordStat[]>(() => {
+    if (!stats?.top_incorrect_words) return []
+    return stats.top_incorrect_words.slice(0, 8)
+  }, [stats])
+
+  const maxDailySentences = useMemo(
+    () => Math.max(1, ...recentDaily.map((d) => d.total_sentences_practiced || 0)),
+    [recentDaily]
+  )
+
+  const maxDailyError = useMemo(
+    () =>
+      Math.max(
+        0.01,
+        ...recentDaily.map((d) => d.sentence_error_rate?.mean ?? 0)
+      ),
+    [recentDaily]
+  )
+
+  const maxIncorrectCount = useMemo(
+    () => Math.max(1, ...topIncorrect.map((w) => w.incorrect_count || 0)),
+    [topIncorrect]
+  )
 
   return (
     <div className="h-screen flex flex-col bg-white">
@@ -91,19 +138,215 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* Main Content - Under Construction */}
-      <main className="flex-1 flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="mb-6">
-            <svg className="w-24 h-24 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
+      {/* Main Content */}
+      <main className="flex-1 bg-gray-50 overflow-y-auto">
+        <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Learning dashboard</h1>
+              <p className="text-sm text-gray-600">
+                Overview of your listening and dictation practice.
+              </p>
+            </div>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Dashboard</h1>
-          <p className="text-xl text-gray-600 mb-1">This page is under construction</p>
-          <p className="text-sm text-gray-500">😄 Hang Yin is working on something amazing! 😂</p>
+
+          {error && (
+            <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
+          {loading && !stats && (
+            <div className="flex items-center justify-center py-16 text-gray-500 text-sm">
+              Loading your stats…
+            </div>
+          )}
+
+          {stats && (
+            <>
+              {/* Summary cards */}
+              <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <StatCard
+                  label="Videos practiced"
+                  value={stats.total_videos_practiced}
+                  sublabel="Unique videos"
+                />
+                <StatCard
+                  label="Sentences practiced"
+                  value={stats.total_sentences_practiced}
+                  sublabel="Total across all sessions"
+                />
+                <StatCard
+                  label="Words seen"
+                  value={stats.total_words_seen}
+                  sublabel={`${stats.unique_words_seen} unique`}
+                />
+                <StatCard
+                  label="Errors & hints"
+                  value={stats.total_incorrect_words}
+                  sublabel={`${stats.total_hints_used} hints used`}
+                />
+              </section>
+
+              {/* Daily trends */}
+              <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="bg-white rounded-xl border border-gray-200 p-4">
+                  <h2 className="text-sm font-semibold text-gray-900 mb-1">
+                    Daily sentences & difficulty
+                  </h2>
+                  <p className="text-xs text-gray-500 mb-4">
+                    Last {recentDaily.length} days – bars: sentences, line: error rate.
+                  </p>
+                  {recentDaily.length === 0 ? (
+                    <p className="text-xs text-gray-500">No practice data yet.</p>
+                  ) : (
+                    <div className="h-40 flex items-end gap-1">
+                      {recentDaily.map((d) => {
+                        const sentences = d.total_sentences_practiced || 0
+                        const barHeight = (sentences / maxDailySentences) * 100
+                        const errorMean = d.sentence_error_rate?.mean ?? 0
+                        const errorHeight = (errorMean / maxDailyError) * 100
+                        return (
+                          <div
+                            key={d.date}
+                            className="flex-1 flex flex-col items-center justify-end gap-1"
+                          >
+                            <div className="relative w-full h-24 flex items-end">
+                              <div
+                                className="w-full bg-indigo-100 rounded-t-md"
+                                style={{ height: `${barHeight || 2}%` }}
+                              />
+                              <div
+                                className="absolute bottom-0 left-1/2 -translate-x-1/2 w-1 rounded-full bg-rose-400"
+                                style={{ height: `${errorHeight || 2}%` }}
+                              />
+                            </div>
+                            <span className="mt-1 text-[10px] text-gray-500">
+                              {d.date.slice(5)}
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="bg-white rounded-xl border border-gray-200 p-4">
+                  <h2 className="text-sm font-semibold text-gray-900 mb-1">
+                    Sentence & vocabulary difficulty
+                  </h2>
+                  <p className="text-xs text-gray-500 mb-4">
+                    Average words per sentence and characters per word.
+                  </p>
+                  <div className="space-y-3">
+                    <DifficultyBar
+                      label="Sentence length (words)"
+                      stats={stats.sentence_length_words}
+                      unit="words"
+                      maxExpected={25}
+                    />
+                    <DifficultyBar
+                      label="Word length (characters)"
+                      stats={stats.word_length_chars}
+                      unit="chars"
+                      maxExpected={12}
+                    />
+                  </div>
+                </div>
+              </section>
+
+              {/* Top incorrect words */}
+              <section className="bg-white rounded-xl border border-gray-200 p-4">
+                <h2 className="text-sm font-semibold text-gray-900 mb-1">Top tricky words</h2>
+                <p className="text-xs text-gray-500 mb-4">
+                  Words with the most mistakes. Focus practice here to get the biggest gains.
+                </p>
+                {topIncorrect.length === 0 ? (
+                  <p className="text-xs text-gray-500">No word-level data yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {topIncorrect.map((w) => (
+                      <div key={w.word} className="flex items-center gap-3">
+                        <div className="w-28 text-xs font-mono text-gray-800 truncate">
+                          {w.word}
+                        </div>
+                        <div className="flex-1 h-4 bg-gray-100 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-rose-400"
+                            style={{
+                              width: `${(w.incorrect_count / maxIncorrectCount) * 100 || 2}%`,
+                            }}
+                          />
+                        </div>
+                        <div className="w-32 text-right text-[11px] text-gray-600">
+                          {w.incorrect_count}× · {(w.incorrect_rate * 100).toFixed(0)}% ·{' '}
+                          {w.average_spell_retry_times.toFixed(1)} tries
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </>
+          )}
         </div>
       </main>
+    </div>
+  )
+}
+
+type StatCardProps = {
+  label: string
+  value: number
+  sublabel?: string
+}
+
+function StatCard({ label, value, sublabel }: StatCardProps) {
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-col">
+      <span className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
+        {label}
+      </span>
+      <span className="text-2xl font-semibold text-gray-900">
+        {value.toLocaleString()}
+      </span>
+      {sublabel && <span className="mt-1 text-xs text-gray-500">{sublabel}</span>}
+    </div>
+  )
+}
+
+type DifficultyBarProps = {
+  label: string
+  stats?: DistributionStats | null
+  unit: string
+  maxExpected: number
+}
+
+type DistributionStats = {
+  mean: number
+  variance: number
+  p25: number
+  p50: number
+  p75: number
+}
+
+function DifficultyBar({ label, stats, unit, maxExpected }: DifficultyBarProps) {
+  const mean = stats?.mean ?? 0
+  const pct = Math.max(2, Math.min(100, (mean / maxExpected) * 100))
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs font-medium text-gray-700">{label}</span>
+        <span className="text-xs text-gray-500">
+          {mean.toFixed(1)} {unit}
+        </span>
+      </div>
+      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+        <div
+          className="h-full bg-indigo-500 rounded-full"
+          style={{ width: `${pct}%` }}
+        />
+      </div>
     </div>
   )
 }
