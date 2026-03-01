@@ -73,6 +73,7 @@ export default function Workspace() {
   const sessionSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
+  const [isImportInProgress, setIsImportInProgress] = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [audioBlobUrl, setAudioBlobUrl] = useState<string | null>(null)
 
@@ -189,7 +190,7 @@ export default function Workspace() {
   }
 
   const runImportInBackground = async (payload: { url: string; playlistId: number }) => {
-    pushNotification('info', 'Import started. You can keep using the app.')
+    setIsImportInProgress(true)
     try {
       const processResponse = await api.post('/api/youtube/process', {
         url: payload.url
@@ -204,6 +205,8 @@ export default function Workspace() {
     } catch (err: unknown) {
       const message = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? null
       pushNotification('error', message || 'Import failed. Please try again.')
+    } finally {
+      setIsImportInProgress(false)
     }
   }
 
@@ -799,6 +802,19 @@ export default function Workspace() {
 
         {/* Main Content */}
         <main className="flex-1 flex flex-col overflow-hidden">
+          {/* Async import progress bar (non-blocking) */}
+          {isImportInProgress && (
+            <div className="flex-shrink-0 px-4 py-2 bg-indigo-50 border-b border-indigo-100">
+              <p className="text-sm text-indigo-800 mb-1.5">Importing lesson…</p>
+              <div className="h-1.5 w-full bg-indigo-200 rounded-full overflow-hidden">
+                <div
+                  className="h-full w-2/5 bg-indigo-600 rounded-full"
+                  style={{ animation: 'importProgress 1.5s ease-in-out infinite' }}
+                />
+              </div>
+            </div>
+          )}
+
           {/* Top Panel */}
           <div className="p-4 border-b border-gray-200 bg-white">
             <div className="mb-4">

@@ -69,7 +69,7 @@ export default function ImportModal({ isOpen, onClose, onImport, defaultPlaylist
     }
   }
 
-  const handleImport = async () => {
+  const handleImport = () => {
     if (!youtubeUrl.trim()) {
       setError('Please enter a YouTube URL')
       return
