@@ -583,10 +583,10 @@ export default function Workspace() {
     const target = normalizeWord(targetWord)
     const input = normalizeWord(inputValue)
     for (let i = 0; i < input.length; i++) {
-      if (i >= target.length || input[i] !== target[i]) return 'border-b-2 border-red-500'
+      if (i >= target.length || input[i] !== target[i]) return 'border-b-4 border-red-500'
     }
-    if (input.length < target.length) return 'border-b-2 border-yellow-500'
-    return 'border-b-2 border-green-500'
+    if (input.length < target.length) return 'border-b-4 border-yellow-500'
+    return 'border-b-4 border-green-500'
   }
 
   return (
@@ -1120,7 +1120,7 @@ export default function Workspace() {
                                 })
                               }
                             }}
-                            className={`bg-transparent border-0 outline-none px-0.5 py-0 min-w-0 ${underlineClass} ${isHintShown ? 'text-gray-400' : 'text-gray-900'}`}
+                            className={`bg-transparent border-0 outline-none px-0.5 py-0 min-w-0 rounded-sm focus:shadow-[0_0_0_2px_rgba(251,191,36,0.5)] ${underlineClass} ${isHintShown ? 'text-gray-400' : 'text-gray-900'}`}
                             style={{ maxWidth: `${Math.max(2, word.length*1.2)}ch`, fontSize: '1.8em' }}
                             aria-label={`Word ${idx + 1}`}
                             autoComplete="off"
