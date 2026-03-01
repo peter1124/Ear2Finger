@@ -428,13 +428,15 @@ class YouTubeProcessor:
 
     def process_youtube_video(self, youtube_url: str, db: Session, user_id: int) -> Dict:
         """Process a YouTube video: extract, segment, and store in database"""
-        # Check if video already exists for this user
-        existing_video = db.query(Video).filter(
-            Video.user_id == user_id,
-            Video.youtube_url == youtube_url,
-        ).first()
+        youtube_url = youtube_url.strip().rstrip(',;')
+        # Check if video already exists (by URL only: DB may have UNIQUE on youtube_url)
+        existing_video = db.query(Video).filter(Video.youtube_url == youtube_url).first()
         if existing_video:
-            # Return existing video with its sentences
+            if existing_video.user_id is not None and existing_video.user_id != user_id:
+                raise ValueError("This video URL was already imported by another user.")
+            if existing_video.user_id != user_id:
+                existing_video.user_id = user_id
+                db.commit()
             sentences = db.query(Sentence).filter(Sentence.video_id == existing_video.id).order_by(Sentence.sentence_index).all()
             return {
                 'video_id': existing_video.id,

@@ -19,7 +19,8 @@ class YouTubeUrlRequest(BaseModel):
     @field_validator('url')
     @classmethod
     def validate_url(cls, v):
-        """Validate YouTube URL"""
+        """Validate and normalize YouTube URL (strip whitespace and trailing punctuation)."""
+        v = v.strip().rstrip(',;')
         youtube_pattern = re.compile(
             r'(https?://)?(www\.)?(youtube|youtu|youtube-nocookie)\.(com|be)/'
             r'(watch\?v=|embed/|v/|.+\?v=)?([^&=%\?]{11})'
