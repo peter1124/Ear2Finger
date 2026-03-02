@@ -30,8 +30,15 @@ export default function Dashboard() {
 
   const topIncorrect = useMemo<WordStat[]>(() => {
     if (!stats?.top_incorrect_words) return []
-    return stats.top_incorrect_words.slice(0, 8)
+    return [...stats.top_incorrect_words]
+      .sort((a, b) => (b.latest_spell_retry_times ?? 0) - (a.latest_spell_retry_times ?? 0))
+      .slice(0, 8)
   }, [stats])
+
+  const maxRetryForChart = useMemo(
+    () => Math.max(1, ...topIncorrect.map((w) => w.latest_spell_retry_times ?? 0)),
+    [topIncorrect]
+  )
 
   const maxDailySentences = useMemo(
     () => Math.max(1, ...recentDaily.map((d) => d.total_sentences_practiced || 0)),
@@ -47,10 +54,6 @@ export default function Dashboard() {
     [recentDaily]
   )
 
-  const maxIncorrectCount = useMemo(
-    () => Math.max(1, ...topIncorrect.map((w) => w.incorrect_count || 0)),
-    [topIncorrect]
-  )
 
   return (
     <div className="h-screen flex flex-col bg-white">
@@ -141,14 +144,6 @@ export default function Dashboard() {
       {/* Main Content */}
       <main className="flex-1 bg-gray-50 overflow-y-auto">
         <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Learning dashboard</h1>
-              <p className="text-sm text-gray-600">
-                Overview of your listening and dictation practice.
-              </p>
-            </div>
-          </div>
 
           {error && (
             <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
@@ -182,9 +177,9 @@ export default function Dashboard() {
                   sublabel={`${stats.unique_words_seen} unique`}
                 />
                 <StatCard
-                  label="Errors & hints"
-                  value={stats.total_incorrect_words}
-                  sublabel={`${stats.total_hints_used} hints used`}
+                  label="Hints"
+                  value={stats.total_hints_used}
+                  sublabel={`${stats.total_incorrect_words} mistakes`}
                 />
               </section>
 
@@ -255,35 +250,39 @@ export default function Dashboard() {
                 </div>
               </section>
 
-              {/* Top incorrect words */}
+              {/* Top incorrect words — horizontal box chart by retry count (median proxy), sorted high → low */}
               <section className="bg-white rounded-xl border border-gray-200 p-4">
                 <h2 className="text-sm font-semibold text-gray-900 mb-1">Top tricky words</h2>
                 <p className="text-xs text-gray-500 mb-4">
-                  Words with the most mistakes. Focus practice here to get the biggest gains.
+                  Latest retry count per word, sorted high to low. Focus practice here for the biggest gains.
                 </p>
                 {topIncorrect.length === 0 ? (
                   <p className="text-xs text-gray-500">No word-level data yet.</p>
                 ) : (
-                  <div className="space-y-2">
-                    {topIncorrect.map((w) => (
-                      <div key={w.word} className="flex items-center gap-3">
-                        <div className="w-28 text-xs font-mono text-gray-800 truncate">
-                          {w.word}
+                  <div className="space-y-3">
+                    {topIncorrect.map((w) => {
+                      const retry = w.latest_spell_retry_times ?? 0
+                      const widthPct = Math.max(4, (retry / maxRetryForChart) * 100)
+                      return (
+                        <div key={w.word} className="flex items-center gap-3">
+                          <div className="w-28 text-xs font-mono text-gray-800 truncate shrink-0">
+                            {w.word}
+                          </div>
+                          <div className="flex-1 min-w-0 flex items-center">
+                            <div className="w-full h-6 bg-gray-100 rounded overflow-hidden flex items-center">
+                              <div
+                                className="h-4 rounded-sm bg-rose-400 shrink-0 min-w-[4px]"
+                                style={{ width: `${widthPct}%` }}
+                                title={`${retry.toFixed(1)} tries`}
+                              />
+                            </div>
+                          </div>
+                          <div className="w-14 text-right text-[11px] text-gray-600 tabular-nums shrink-0">
+                            {retry.toFixed(1)} tries
+                          </div>
                         </div>
-                        <div className="flex-1 h-4 bg-gray-100 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-rose-400"
-                            style={{
-                              width: `${(w.incorrect_count / maxIncorrectCount) * 100 || 2}%`,
-                            }}
-                          />
-                        </div>
-                        <div className="w-32 text-right text-[11px] text-gray-600">
-                          {w.incorrect_count}× · {(w.incorrect_rate * 100).toFixed(0)}% ·{' '}
-                          {w.average_spell_retry_times.toFixed(1)} tries
-                        </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </section>

@@ -190,17 +190,6 @@ export default function Settings() {
       <div className="flex-1 flex overflow-hidden">
         {/* Left Sidebar */}
         <aside className="w-80 bg-gray-50 border-r border-gray-200 flex flex-col">
-          {/* Settings Title with Dropdown */}
-          <div className="p-4 border-b border-gray-200">
-            <div className="flex items-center gap-2 bg-white rounded-lg border border-gray-200 px-3 py-2 cursor-pointer hover:bg-gray-50">
-              <img src="/icon.png" alt="Settings" className="w-5 h-5" />
-              <span className="flex-1 font-semibold text-gray-900">Settings</span>
-              <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </div>
-          </div>
-
           {/* Settings Navigation */}
           <div className="flex-1 overflow-y-auto p-4 space-y-1">
             {settingsSections.map((section) => (

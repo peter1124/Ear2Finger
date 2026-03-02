@@ -34,6 +34,7 @@ class WordStat(BaseModel):
     error_char_count: int
     error_char_rate: float
     average_spell_retry_times: float  # avg attempts to spell this word (1 + error_char_events / occurrences)
+    latest_spell_retry_times: float  # retry count (1 + error_chars) for the most recent occurrence of this word
 
 
 class DistributionStats(BaseModel):
@@ -201,6 +202,7 @@ async def get_user_stats(
     rows = (
         db.query(LearningProgress)
         .filter(LearningProgress.user_id == current_user.id)
+        .order_by(LearningProgress.updated_at.asc())
         .all()
     )
 
@@ -224,6 +226,8 @@ async def get_user_stats(
     word_lengths: List[float] = []
     # Per-word error character counts
     word_error_chars: Dict[str, int] = {}
+    # Per-word latest retry (1 + error_chars) for most recent occurrence
+    word_latest_retry: Dict[str, float] = {}
 
     # Daily aggregations (keyed by YYYY-MM-DD)
     daily: Dict[str, Dict[str, Any]] = {}
@@ -302,17 +306,18 @@ async def get_user_stats(
             st = word_counts.setdefault(w, {"total": 0, "incorrect": 0, "hint": 0})
             st["hint"] += 1
 
-        # Aggregate per-word error character counts if provided
+        # Aggregate per-word error character counts and latest retry if provided
         if isinstance(words_field, list) and isinstance(error_chars_field, list) and len(words_field) == len(error_chars_field):
             for wf, ec in zip(words_field, error_chars_field):
                 try:
                     ec_int = int(ec)
                 except (TypeError, ValueError):
                     ec_int = 0
-                if ec_int <= 0:
-                    continue
                 w = str(wf)
-                word_error_chars[w] = word_error_chars.get(w, 0) + ec_int
+                if ec_int > 0:
+                    word_error_chars[w] = word_error_chars.get(w, 0) + ec_int
+                # Latest retry = 1 + error_chars for this occurrence (overwrite so we keep most recent)
+                word_latest_retry[w] = 1.0 + ec_int
 
         # Update daily stats
         if day_key:
@@ -359,6 +364,9 @@ async def get_user_stats(
         hint = st["hint"]
         err_chars = word_error_chars.get(w, 0)
         avg_retry = 1.0 + (err_chars / float(total))  # at least 1 try; more errors -> higher avg tries
+        latest_retry = word_latest_retry.get(w)
+        if latest_retry is None:
+            latest_retry = avg_retry
         word_stats.append(
             WordStat(
                 word=w,
@@ -370,6 +378,7 @@ async def get_user_stats(
                 error_char_count=err_chars,
                 error_char_rate=err_chars / float(total),
                 average_spell_retry_times=avg_retry,
+                latest_spell_retry_times=latest_retry,
             )
         )
 

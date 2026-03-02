@@ -67,6 +67,7 @@ export interface WordStat {
   error_char_count: number
   error_char_rate: number
   average_spell_retry_times: number
+  latest_spell_retry_times: number
 }
 
 export interface DailyUserStats {
