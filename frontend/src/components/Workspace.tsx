@@ -474,6 +474,60 @@ export default function Workspace() {
     }
   }, [isPlaying, currentSentenceIndex, sentences])
 
+  // Keyboard shortcuts: [ previous sentence, ] next sentence, Enter play/pause
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement
+      const inInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable
+      const isShortcutKey = e.key === '[' || e.key === ']' || e.key === 'Enter'
+      if (inInput && !isShortcutKey) return
+
+      if (e.key === '[') {
+        e.preventDefault()
+        if (currentSentenceIndex > 0 && sentences.length) {
+          userInitiatedSentenceChangeRef.current = true
+          const prevIndex = currentSentenceIndex - 1
+          setCurrentSentenceIndex(prevIndex)
+          repeatCountRef.current = 0
+          if (audioRef.current && sentences[prevIndex]) {
+            audioRef.current.currentTime = sentences[prevIndex].start_time
+            setCurrentTime(sentences[prevIndex].start_time)
+          }
+        }
+        return
+      }
+      if (e.key === ']') {
+        e.preventDefault()
+        if (currentSentenceIndex >= sentences.length - 1) return
+        const nextIndex = currentSentenceIndex + 1
+        const nextSentence = sentences[nextIndex]
+        if (!nextSentence) return
+        userInitiatedSentenceChangeRef.current = true
+        if (intervalTimeoutRef.current) {
+          clearTimeout(intervalTimeoutRef.current)
+          intervalTimeoutRef.current = null
+        }
+        isWaitingForPauseIntervalRef.current = false
+        repeatCountRef.current = 0
+        setCurrentSentenceIndex(nextIndex)
+        setCurrentTime(nextSentence.start_time)
+        if (audioRef.current) {
+          audioRef.current.currentTime = nextSentence.start_time
+          audioRef.current.play().catch(() => {})
+        }
+        setIsPlaying(true)
+        return
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        if (!selectedLesson || !sentences.length) return
+        setIsPlaying((prev) => !prev)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [currentSentenceIndex, sentences, selectedLesson])
+
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
     const secs = Math.floor(seconds % 60)
@@ -1223,6 +1277,14 @@ export default function Workspace() {
           </div>
         </main>
       </div>
+
+      {/* Status bar - shortcuts */}
+      <footer className="flex-shrink-0 border-t border-gray-200 bg-gray-50 px-4 py-1.5 flex items-center justify-center gap-6 text-xs text-gray-600">
+        <span><kbd className="px-1.5 py-0.5 bg-white border border-gray-300 rounded font-mono">Enter</kbd> play / pause</span>
+        <span><kbd className="px-1.5 py-0.5 bg-white border border-gray-300 rounded font-mono">[</kbd> previous sentence</span>
+        <span><kbd className="px-1.5 py-0.5 bg-white border border-gray-300 rounded font-mono">]</kbd> next sentence</span>
+        <span><kbd className="px-1.5 py-0.5 bg-white border border-gray-300 rounded font-mono">Space</kbd> next word input</span>
+      </footer>
 
       {/* Import Modal */}
       <ImportModal
