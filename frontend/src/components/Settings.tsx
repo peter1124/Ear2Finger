@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { getConfig, setConfig, listUsers, createUser, updateUser, deleteUser, fetchMe, type AdminUser } from '../api'
 
-type SettingsSection = 'ai-api-key' | 'keyboard' | 'about' | 'version' | 'users'
+type SettingsSection = 'ai-api-key' | 'about' | 'users'
 
 export default function Settings() {
   const navigate = useNavigate()
@@ -119,10 +119,8 @@ export default function Settings() {
 
   const settingsSections = [
     { id: 'ai-api-key' as SettingsSection, label: 'AI API-KEY' },
-    { id: 'keyboard' as SettingsSection, label: 'KEYBOARD' },
     ...(isSuperuser ? [{ id: 'users' as SettingsSection, label: 'USERS' }] : []),
     { id: 'about' as SettingsSection, label: 'ABOUT' },
-    { id: 'version' as SettingsSection, label: 'VERSION' },
   ]
 
   const handleApply = async () => {
@@ -225,9 +223,9 @@ export default function Settings() {
         </aside>
 
         {/* Main Content Area */}
-        <main className="flex-1 overflow-y-auto bg-white p-6">
+        <main className="flex-1 overflow-y-auto bg-white p-6 flex justify-center">
           {activeSection === 'ai-api-key' && (
-            <div className="max-w-2xl">
+            <div className="w-full max-w-3xl">
               <h1 className="text-2xl font-bold text-gray-900 mb-6">AI API-KEY</h1>
 
               <div className="space-y-6">
@@ -272,15 +270,8 @@ export default function Settings() {
             </div>
           )}
 
-          {activeSection === 'keyboard' && (
-            <div className="max-w-2xl">
-              <h1 className="text-2xl font-bold text-gray-900 mb-6">KEYBOARD</h1>
-              <p className="text-gray-600">Keyboard settings coming soon...</p>
-            </div>
-          )}
-
           {activeSection === 'about' && (
-            <div className="max-w-2xl">
+            <div className="w-full max-w-3xl">
               <h1 className="text-2xl font-bold text-gray-900 mb-6">ABOUT</h1>
               <div className="space-y-4 text-gray-700">
                 <p>
@@ -289,26 +280,20 @@ export default function Settings() {
                 <p>
                   Practice with YouTube videos, get real-time feedback, and track your progress.
                 </p>
-              </div>
-            </div>
-          )}
-
-          {activeSection === 'version' && (
-            <div className="max-w-2xl">
-              <h1 className="text-2xl font-bold text-gray-900 mb-6">VERSION</h1>
-              <div className="space-y-4 text-gray-700">
-                <p>
-                  <strong>Version:</strong> 1.0.0
-                </p>
-                <p>
-                  <strong>Build Date:</strong> {new Date().toLocaleDateString()}
-                </p>
+                <div className="pt-4 mt-2 border-t border-gray-200 space-y-1">
+                  <p>
+                    <strong>Version:</strong> 1.0.0
+                  </p>
+                  <p>
+                    <strong>Build Date:</strong> {new Date().toLocaleDateString()}
+                  </p>
+                </div>
               </div>
             </div>
           )}
 
           {activeSection === 'users' && isSuperuser && (
-            <div className="max-w-4xl">
+            <div className="w-full max-w-3xl">
               <h1 className="text-2xl font-bold text-gray-900 mb-6">Users</h1>
               {usersError && (
                 <div className="mb-4 text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{usersError}</div>
