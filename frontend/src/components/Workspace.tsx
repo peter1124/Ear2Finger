@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, upsertCurrentLessonSession, saveLessonSession } from '../api'
+import { api, upsertCurrentLessonSession, saveLessonSession, type LessonSessionRecord } from '../api'
 import { useAuth } from '../contexts/AuthContext'
 import { useWorkspace, type Lesson } from '../contexts/WorkspaceContext'
 import ImportModal from './ImportModal'
@@ -69,7 +69,13 @@ export default function Workspace() {
   const prevSentencesIdentityRef = useRef<string | null>(null)
   const prevSentenceKeyRef = useRef<number | null>(null)
   const prevVideoIdForScoresRef = useRef<number | null>(null)
-  const sessionStartedAtRef = useRef<string>(new Date().toISOString())
+  const getLocalDateTimeString = () => {
+    const d = new Date()
+    const pad = (n: number) => n.toString().padStart(2, '0')
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  }
+
+  const sessionStartedAtRef = useRef<string>(getLocalDateTimeString())
   const sessionSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
@@ -102,7 +108,7 @@ export default function Workspace() {
     if (prevVideoIdForScoresRef.current === videoId) return
     const hadPreviousVideo = prevVideoIdForScoresRef.current !== null
     prevVideoIdForScoresRef.current = videoId
-    if (selectedLesson) sessionStartedAtRef.current = new Date().toISOString()
+    if (selectedLesson) sessionStartedAtRef.current = getLocalDateTimeString()
     if (hadPreviousVideo && videoId !== null) resetVideoSessionScores()
   }, [selectedLesson?.video_id, resetVideoSessionScores])
 
@@ -175,7 +181,6 @@ export default function Workspace() {
       if (videos.length > 0 && !selectedLesson) {
         setSelectedLesson(videos[0])
       }
-      // Do not set selectedLesson to null when videos.length === 0, so we keep progress if the API returns empty (e.g. transient error)
     } catch (err) {
       console.error('Error fetching lessons:', err)
     }
@@ -230,14 +235,14 @@ export default function Workspace() {
       saveLessonSession({
         video_id: selectedLesson.video_id,
         started_at: sessionStartedAtRef.current,
-        ended_at: new Date().toISOString(),
+        ended_at: getLocalDateTimeString(),
         sentences_practiced: currentSentenceIndex + 1,
         correct_chars: videoSessionScores.correctChars,
         hint_count: videoSessionScores.hintCount,
         incorrect_chars: videoSessionScores.incorrectChars,
       }).catch(() => {})
     }
-    sessionStartedAtRef.current = new Date().toISOString()
+    sessionStartedAtRef.current = getLocalDateTimeString()
     setSelectedLesson(lesson)
     fetchSentences(lesson.video_id)
     setCurrentTime(0)
@@ -634,6 +639,30 @@ export default function Workspace() {
     return s
   }
 
+  const handleResumeLessonSession = (session: LessonSessionRecord) => {
+    if (!selectedLesson || !sentences.length) return
+    const targetIndex = Math.max(0, Math.min(sentences.length - 1, session.sentences_practiced - 1))
+    const targetSentence = sentences[targetIndex]
+    if (!targetSentence) return
+
+    // Restore per-video scores
+    setVideoSessionScores({
+      correctChars: session.correct_chars,
+      incorrectChars: session.incorrect_chars,
+      hintCount: session.hint_count,
+    })
+
+    // Restore sentence index and audio position
+    userInitiatedSentenceChangeRef.current = true
+    setCurrentSentenceIndex(targetIndex)
+    setCurrentTime(targetSentence.start_time)
+    if (audioRef.current) {
+      audioRef.current.currentTime = targetSentence.start_time
+      audioRef.current.play().catch(() => {})
+    }
+    setIsPlaying(true)
+  }
+
   // Persist per-sentence learning progress whenever word inputs or hints change.
   // This keeps backend stats in sync even if the user doesn't fully complete a sentence.
   useEffect(() => {
@@ -683,7 +712,6 @@ export default function Workspace() {
         data,
       })
       .catch(() => {
-        // best-effort; failures will be retried on next change
       })
   }, [
     currentSentence,
@@ -856,19 +884,6 @@ export default function Workspace() {
 
         {/* Main Content */}
         <main className="flex-1 flex flex-col overflow-hidden">
-          {/* Async import progress bar (non-blocking) */}
-          {isImportInProgress && (
-            <div className="flex-shrink-0 px-4 py-2 bg-indigo-50 border-b border-indigo-100">
-              <p className="text-sm text-indigo-800 mb-1.5">Importing lesson…</p>
-              <div className="h-1.5 w-full bg-indigo-200 rounded-full overflow-hidden">
-                <div
-                  className="h-full w-2/5 bg-indigo-600 rounded-full"
-                  style={{ animation: 'importProgress 1.5s ease-in-out infinite' }}
-                />
-              </div>
-            </div>
-          )}
-
           {/* Top Panel */}
           <div className="p-4 border-b border-gray-200 bg-white">
             <div className="mb-4">
@@ -1278,12 +1293,27 @@ export default function Workspace() {
         </main>
       </div>
 
-      {/* Status bar - shortcuts */}
-      <footer className="flex-shrink-0 border-t border-gray-200 bg-gray-50 px-4 py-1.5 flex items-center justify-center gap-6 text-xs text-gray-600">
-        <span><kbd className="px-1.5 py-0.5 bg-white border border-gray-300 rounded font-mono">Enter</kbd> play / pause</span>
-        <span><kbd className="px-1.5 py-0.5 bg-white border border-gray-300 rounded font-mono">[</kbd> previous sentence</span>
-        <span><kbd className="px-1.5 py-0.5 bg-white border border-gray-300 rounded font-mono">]</kbd> next sentence</span>
-        <span><kbd className="px-1.5 py-0.5 bg-white border border-gray-300 rounded font-mono">Space</kbd> next word input</span>
+      {/* Bottom bar: import progress + shortcuts */}
+      <footer className="flex-shrink-0 border-t border-gray-200 bg-gray-50 px-4 py-1.5 flex items-center justify-between gap-6 text-xs text-gray-600">
+        <div className="flex-1 min-w-0 pr-4">
+          {isImportInProgress && (
+            <div className="flex items-center gap-3">
+              <span className="whitespace-nowrap text-indigo-800">Importing lesson…</span>
+              <div className="h-1.5 w-full bg-indigo-200 rounded-full overflow-hidden">
+                <div
+                  className="h-full w-2/5 bg-indigo-600 rounded-full"
+                  style={{ animation: 'importProgress 1.5s ease-in-out infinite' }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-4 flex-wrap justify-end">
+          <span><kbd className="px-1.5 py-0.5 bg-white border border-gray-300 rounded font-mono">Enter</kbd> play / pause</span>
+          <span><kbd className="px-1.5 py-0.5 bg-white border border-gray-300 rounded font-mono">[</kbd> previous sentence</span>
+          <span><kbd className="px-1.5 py-0.5 bg-white border border-gray-300 rounded font-mono">]</kbd> next sentence</span>
+          <span><kbd className="px-1.5 py-0.5 bg-white border border-gray-300 rounded font-mono">Space</kbd> next word input</span>
+        </div>
       </footer>
 
       {/* Import Modal */}
@@ -1297,6 +1327,7 @@ export default function Workspace() {
       {/* Lesson History - bottom-right */}
       <LessonHistory
         videoId={selectedLesson?.video_id ?? null}
+        onResume={handleResumeLessonSession}
         isLessonFinished={
           sentences.length > 0 &&
           currentSentenceIndex >= sentences.length - 1 &&

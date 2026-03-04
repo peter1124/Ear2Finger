@@ -33,7 +33,7 @@ function groupByDate(sessions: LessonSessionRecord[]): { dateLabel: string; sess
 
 interface LessonHistoryProps {
   videoId: number | null
-  onResume?: () => void
+  onResume?: (session: LessonSessionRecord) => void
   isLessonFinished?: boolean
 }
 
@@ -55,11 +55,9 @@ export default function LessonHistory({ videoId, onResume, isLessonFinished }: L
   }, [videoId])
 
   const grouped = groupByDate(sessions)
-  const hasIncomplete = sessions.some((s) => s.ended_at == null)
-  const showResume = hasIncomplete && !isLessonFinished && onResume
 
   return (
-    <div className="fixed bottom-4 right-4 z-40 flex flex-col items-end">
+    <div className="fixed bottom-8 right-4 z-40 flex flex-col items-end">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -70,7 +68,7 @@ export default function LessonHistory({ videoId, onResume, isLessonFinished }: L
       {open && (
         <div className="mt-2 w-80 max-h-[min(60vh,400px)] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl flex flex-col">
           <div className="p-2 border-b border-gray-200 font-medium text-gray-900 text-sm shrink-0">
-            Session history
+            Lesson history
           </div>
           <div className="overflow-y-auto flex-1 p-2">
             {loading ? (
@@ -81,17 +79,6 @@ export default function LessonHistory({ videoId, onResume, isLessonFinished }: L
               <div className="text-gray-500 text-sm py-4 text-center">No history yet</div>
             ) : (
               <div className="space-y-4">
-                {showResume && (
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      onClick={onResume}
-                      className="text-sm text-indigo-600 hover:text-indigo-800 font-medium"
-                    >
-                      Resume
-                    </button>
-                  </div>
-                )}
                 {grouped.map(({ dateLabel, sessions: daySessions }) => (
                   <div key={dateLabel}>
                     <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">
@@ -104,15 +91,24 @@ export default function LessonHistory({ videoId, onResume, isLessonFinished }: L
                           className="text-sm border border-gray-100 rounded-md p-2 bg-gray-50/80"
                         >
                           <div className="flex justify-between items-center text-gray-600">
-                            <span>{formatTime(s.started_at)}</span>
-                            {s.ended_at == null && (
-                              <span className="text-amber-600 text-xs font-medium">In progress</span>
+                            <span className="text-xs font-medium text-gray-500">
+                              {formatTime(s.started_at)}
+                            </span>
+                            {onResume && (
+                              <button
+                                type="button"
+                                onClick={() => onResume?.(s)}
+                                className="inline-flex items-center rounded-full border border-indigo-200 bg-white px-2 py-0.5 text-[11px] font-medium text-indigo-700 hover:bg-indigo-50 hover:border-indigo-300 transition-colors"
+                              >
+                                <span className="mr-1">↺</span>
+                                Resume
+                              </button>
                             )}
                           </div>
-                          <div className="mt-1 text-gray-700">
-                            Sentences: <strong>{s.sentences_practiced}</strong>
+                          <div className="flex mt-1 text-gray-700">
+                            Practiced sentences: <strong>{s.sentences_practiced}</strong>
                           </div>
-                          <div className="flex gap-3 mt-1 text-xs">
+                          <div className="flex mt-1 text-xs justify-between">
                             <span className="text-green-600">Correct: {s.correct_chars}</span>
                             <span className="text-yellow-600">Hints: {s.hint_count}</span>
                             <span className="text-red-600">Incorrect: {s.incorrect_chars}</span>
