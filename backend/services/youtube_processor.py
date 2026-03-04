@@ -412,14 +412,46 @@ class YouTubeProcessor:
         if current is not None and current.get("text", "").strip():
             merged_segments.append(current)
 
-        # Build final sentence list from merged segments, using their original times
-        sentences: List[Dict] = []
-        for idx, seg in enumerate(merged_segments):
-            sentences.append(
+        # Build base sentence list from merged segments, using their original times
+        base_sentences: List[Dict] = []
+        for seg in merged_segments:
+            base_sentences.append(
                 {
                     "sentence_text": seg["text"].strip(),
                     "start_time": float(seg["start_time"]),
                     "end_time": float(seg["end_time"]),
+                }
+            )
+
+        # Merge every 2 consecutive sentences into a longer one:
+        # [s0, s1, s2, s3, ...] -> [s0+s1, s2+s3, ...]. If odd, keep last as-is.
+        merged_pairs: List[Dict] = []
+        i = 0
+        n = len(base_sentences)
+        while i < n:
+            first = base_sentences[i]
+            if i + 1 < n:
+                second = base_sentences[i + 1]
+                merged_pairs.append(
+                    {
+                        "sentence_text": (first["sentence_text"] + " " + second["sentence_text"]).strip(),
+                        "start_time": first["start_time"],
+                        "end_time": second["end_time"],
+                    }
+                )
+                i += 2
+            else:
+                merged_pairs.append(first)
+                i += 1
+
+        # Assign sentence_index after merging, preserving chronological order
+        sentences: List[Dict] = []
+        for idx, seg in enumerate(merged_pairs):
+            sentences.append(
+                {
+                    "sentence_text": seg["sentence_text"],
+                    "start_time": seg["start_time"],
+                    "end_time": seg["end_time"],
                     "sentence_index": idx,
                 }
             )
