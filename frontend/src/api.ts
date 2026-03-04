@@ -158,13 +158,73 @@ export async function fetchMe(): Promise<UserInfo> {
   return data
 }
 
-export async function getConfig(): Promise<Record<string, string>> {
-  const { data } = await api.get<Record<string, string>>('/api/user/config')
+export type AIProvider = 'openai' | 'gemini' | 'anthropic'
+
+export interface AIConfig {
+  ai_provider: AIProvider | null
+  has_openai_api_key: boolean
+  has_gemini_api_key: boolean
+  has_anthropic_api_key: boolean
+}
+
+export interface SetConfigPayload {
+  ai_provider?: AIProvider
+  openai_api_key?: string | null
+  gemini_api_key?: string | null
+  anthropic_api_key?: string | null
+  // Allow future non-AI config keys without tightening this type too much
+  [key: string]: string | number | boolean | null | undefined
+}
+
+export async function getConfig(): Promise<AIConfig> {
+  const { data } = await api.get<AIConfig>('/api/user/config')
   return data
 }
 
-export async function setConfig(config: Record<string, string | number | boolean | null>) {
+export async function setConfig(config: SetConfigPayload) {
   await api.put('/api/user/config', config)
+}
+
+export interface AIKeyHint {
+  id: string
+  provider: AIProvider
+  last4: string
+  created_at: string
+  is_active: boolean
+}
+
+export interface ListAIKeysResponse {
+  provider: AIProvider
+  ai_provider: AIProvider | null
+  keys: AIKeyHint[]
+}
+
+export async function listAIKeys(provider: AIProvider): Promise<ListAIKeysResponse> {
+  const { data } = await api.get<ListAIKeysResponse>('/api/user/ai-keys', {
+    params: { provider },
+  })
+  return data
+}
+
+export async function addAIKey(provider: AIProvider, key: string, makeActive = true): Promise<AIKeyHint> {
+  const { data } = await api.post<AIKeyHint>('/api/user/ai-keys', {
+    provider,
+    key,
+    make_active: makeActive,
+  })
+  return data
+}
+
+export async function activateAIKey(provider: AIProvider, keyId: string): Promise<void> {
+  await api.post('/api/user/ai-keys/' + encodeURIComponent(keyId) + '/activate', null, {
+    params: { provider },
+  })
+}
+
+export async function deleteAIKey(provider: AIProvider, keyId: string): Promise<void> {
+  await api.delete('/api/user/ai-keys/' + encodeURIComponent(keyId), {
+    params: { provider },
+  })
 }
 
 export interface LessonSessionRecord {

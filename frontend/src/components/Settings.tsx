@@ -1,7 +1,23 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { getConfig, setConfig, listUsers, createUser, updateUser, deleteUser, fetchMe, type AdminUser } from '../api'
+import {
+  getConfig,
+  setConfig,
+  listAIKeys,
+  addAIKey,
+  activateAIKey,
+  deleteAIKey,
+  listUsers,
+  createUser,
+  updateUser,
+  deleteUser,
+  fetchMe,
+  type AdminUser,
+  type AIProvider,
+  type SetConfigPayload,
+  type AIKeyHint,
+} from '../api'
 
 type SettingsSection = 'ai-api-key' | 'about' | 'users'
 
@@ -9,8 +25,15 @@ export default function Settings() {
   const navigate = useNavigate()
   const { user, logout, setUser } = useAuth()
   const [activeSection, setActiveSection] = useState<SettingsSection>('ai-api-key')
-  const [aiVendor, setAiVendor] = useState('Gemini')
+  const [aiProvider, setAiProvider] = useState<AIProvider>('gemini')
   const [apiKey, setApiKey] = useState('')
+  const [hasOpenaiKey, setHasOpenaiKey] = useState(false)
+  const [hasGeminiKey, setHasGeminiKey] = useState(false)
+  const [hasAnthropicKey, setHasAnthropicKey] = useState(false)
+  const [aiConfigError, setAiConfigError] = useState<string | null>(null)
+  const [aiKeys, setAiKeys] = useState<AIKeyHint[]>([])
+  const [aiKeysLoading, setAiKeysLoading] = useState(false)
+  const [aiKeysError, setAiKeysError] = useState<string | null>(null)
 
   // User management (superuser only)
   const [users, setUsers] = useState<AdminUser[]>([])
@@ -36,11 +59,38 @@ export default function Settings() {
       .finally(() => setUsersLoading(false))
   }, [isSuperuser])
 
+  const loadAIKeys = useCallback(() => {
+    setAiKeysLoading(true)
+    setAiKeysError(null)
+    Promise.allSettled([
+      listAIKeys('openai'),
+      listAIKeys('gemini'),
+      listAIKeys('anthropic'),
+    ])
+      .then((results) => {
+        const fulfilled = results.filter(
+          (r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof listAIKeys>>> =>
+            r.status === 'fulfilled'
+        )
+        const allKeys = fulfilled.flatMap((r) => r.value.keys)
+        setAiKeys(allKeys)
+        if (fulfilled.length === 0) {
+          setAiKeysError('Failed to load API keys')
+        }
+      })
+      .catch(() => {
+        setAiKeysError('Failed to load API keys')
+      })
+      .finally(() => setAiKeysLoading(false))
+  }, [])
+
   useEffect(() => {
     getConfig()
       .then((c) => {
-        if (c.ai_vendor) setAiVendor(c.ai_vendor)
-        if (c.api_key) setApiKey(c.api_key)
+        if (c.ai_provider) setAiProvider(c.ai_provider)
+        setHasOpenaiKey(Boolean(c.has_openai_api_key))
+        setHasGeminiKey(Boolean(c.has_gemini_api_key))
+        setHasAnthropicKey(Boolean(c.has_anthropic_api_key))
       })
       .catch(() => {})
   }, [])
@@ -48,6 +98,12 @@ export default function Settings() {
   useEffect(() => {
     if (activeSection === 'users' && isSuperuser) fetchUsers()
   }, [activeSection, isSuperuser, fetchUsers])
+
+  useEffect(() => {
+    if (activeSection === 'ai-api-key') {
+      loadAIKeys()
+    }
+  }, [activeSection, loadAIKeys])
 
   const openAddUser = () => {
     setEditingUser(null)
@@ -124,17 +180,65 @@ export default function Settings() {
   ]
 
   const handleApply = async () => {
+    setAiConfigError(null)
     try {
-      await setConfig({ ai_vendor: aiVendor, api_key: apiKey || null })
+      const trimmedKey = apiKey.trim()
+      if (trimmedKey) {
+        // Add a new key for the selected provider and make it active
+        await addAIKey(aiProvider, trimmedKey, true)
+        await setConfig({ ai_provider: aiProvider } satisfies SetConfigPayload)
+      } else {
+        // Only update provider selection
+        await setConfig({ ai_provider: aiProvider } satisfies SetConfigPayload)
+      }
+      setApiKey('')
+
+      // Refresh key status after saving
+      const c = await getConfig()
+      if (c.ai_provider) setAiProvider(c.ai_provider)
+      setHasOpenaiKey(Boolean(c.has_openai_api_key))
+      setHasGeminiKey(Boolean(c.has_gemini_api_key))
+      setHasAnthropicKey(Boolean(c.has_anthropic_api_key))
+      loadAIKeys()
       console.log('Settings saved')
-    } catch (e) {
+    } catch (e: unknown) {
+      const ax = e as { response?: { data?: { detail?: string } } }
+      setAiConfigError(ax.response?.data?.detail ?? 'Failed to save AI settings')
       console.error('Failed to save settings', e)
     }
   }
 
-  const handleCancel = () => {
-    // Reset or cancel changes
-    navigate('/workspace')
+  const handleActivateKey = async (provider: AIProvider, keyId: string) => {
+    setAiConfigError(null)
+    try {
+      await activateAIKey(provider, keyId)
+      await setConfig({ ai_provider: provider } satisfies SetConfigPayload)
+      const c = await getConfig()
+      if (c.ai_provider) setAiProvider(c.ai_provider)
+      setHasOpenaiKey(Boolean(c.has_openai_api_key))
+      setHasGeminiKey(Boolean(c.has_gemini_api_key))
+      setHasAnthropicKey(Boolean(c.has_anthropic_api_key))
+      loadAIKeys()
+    } catch (e: unknown) {
+      const ax = e as { response?: { data?: { detail?: string } } }
+      setAiConfigError(ax.response?.data?.detail ?? 'Failed to activate API key')
+    }
+  }
+
+  const handleDeleteKey = async (provider: AIProvider, keyId: string) => {
+    setAiConfigError(null)
+    try {
+      await deleteAIKey(provider, keyId)
+      const c = await getConfig()
+      if (c.ai_provider) setAiProvider(c.ai_provider)
+      setHasOpenaiKey(Boolean(c.has_openai_api_key))
+      setHasGeminiKey(Boolean(c.has_gemini_api_key))
+      setHasAnthropicKey(Boolean(c.has_anthropic_api_key))
+      loadAIKeys()
+    } catch (e: unknown) {
+      const ax = e as { response?: { data?: { detail?: string } } }
+      setAiConfigError(ax.response?.data?.detail ?? 'Failed to delete API key')
+    }
   }
 
   return (
@@ -242,22 +346,6 @@ export default function Settings() {
               </button>
             ))}
           </div>
-
-          {/* Action Buttons */}
-          <div className="p-4 border-t border-gray-200 space-y-3">
-            <button
-              onClick={handleCancel}
-              className="w-full bg-white border-2 border-gray-900 text-gray-900 font-medium py-2.5 px-4 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              CANCEL
-            </button>
-            <button
-              onClick={handleApply}
-              className="w-full bg-gray-900 text-white font-medium py-2.5 px-4 rounded-lg hover:bg-gray-800 transition-colors"
-            >
-              APPLY
-            </button>
-          </div>
         </aside>
 
         {/* Main Content Area */}
@@ -267,21 +355,23 @@ export default function Settings() {
               <h1 className="text-2xl font-bold text-gray-900 mb-6">AI API-KEY</h1>
 
               <div className="space-y-6">
+                {aiConfigError && (
+                  <div className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{aiConfigError}</div>
+                )}
                 {/* AI Vendor Dropdown */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    AI Vendor
+                    AI Provider
                   </label>
                   <div className="relative">
                     <select
-                      value={aiVendor}
-                      onChange={(e) => setAiVendor(e.target.value)}
+                      value={aiProvider}
+                      onChange={(e) => setAiProvider(e.target.value as AIProvider)}
                       className="w-full bg-gray-900 text-white px-4 py-3 rounded-lg appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-700"
                     >
-                      <option value="Gemini">Gemini</option>
-                      <option value="OpenAI">OpenAI</option>
-                      <option value="Anthropic">Anthropic</option>
-                      <option value="Other">Other</option>
+                      <option value="gemini">Gemini</option>
+                      <option value="openai">OpenAI</option>
+                      <option value="anthropic">Anthropic</option>
                     </select>
                     <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
                       <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -299,11 +389,90 @@ export default function Settings() {
                   <textarea
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
-                    placeholder="Enter your API key here..."
+                    placeholder={
+                      (aiProvider === 'openai' && hasOpenaiKey) ||
+                      (aiProvider === 'gemini' && hasGeminiKey) ||
+                      (aiProvider === 'anthropic' && hasAnthropicKey)
+                        ? 'Key is configured. Paste a new key to replace it.'
+                        : 'Enter your API key here...'
+                    }
                     rows={8}
                     className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
                   />
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={handleApply}
+                      className="px-4 py-2 bg-gray-900 text-white font-medium rounded-lg hover:bg-gray-800 transition-colors"
+                    >
+                      ADD
+                    </button>
+                  </div>
                 </div>
+
+                {/* Saved keys list (all providers) */}
+                <div className="pt-4 border-t border-gray-200">
+                  <h2 className="text-sm font-semibold text-gray-900 mb-2">
+                    Saved keys
+                  </h2>
+                  {aiKeysError && (
+                    <div className="mb-2 text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{aiKeysError}</div>
+                  )}
+                  {aiKeysLoading ? (
+                    <p className="text-sm text-gray-600">Loading keys…</p>
+                  ) : aiKeys.length === 0 ? (
+                    <p className="text-sm text-gray-600">No keys saved yet for this provider.</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {aiKeys.map((k) => (
+                        <li
+                          key={k.id}
+                          className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2"
+                        >
+                          <div className="flex flex-col">
+                            <span className="text-sm text-gray-900">
+                              <span className="mr-2 inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-800">
+                                {k.provider === 'openai'
+                                  ? 'OpenAI'
+                                  : k.provider === 'gemini'
+                                  ? 'Gemini'
+                                  : 'Anthropic'}
+                              </span>
+                              …{k.last4 || '????'}
+                              {k.is_active && (
+                                <span className="ml-2 inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
+                                  Active
+                                </span>
+                              )}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              Added {new Date(k.created_at).toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {!k.is_active && (
+                              <button
+                                type="button"
+                                onClick={() => handleActivateKey(k.provider, k.id)}
+                                className="px-2 py-1 text-xs font-medium text-gray-900 border border-gray-300 rounded hover:bg-gray-50"
+                              >
+                                Activate
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteKey(k.provider, k.id)}
+                              className="px-2 py-1 text-xs font-medium text-red-600 border border-red-200 rounded hover:bg-red-50"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
               </div>
             </div>
           )}
