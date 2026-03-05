@@ -157,24 +157,20 @@ def make_llm_for_user(user_id: int, db: Session) -> BaseChatModel:
     cfg = _get_ai_client_config(db, user_id)
 
     if cfg.provider == "openai":
-        # Model name left to default; can be overridden later per-call or via config.
         return ChatOpenAI(api_key=cfg.api_key)
 
     if cfg.provider == "gemini":
-        # model is required by ChatGoogleGenerativeAI
         return ChatGoogleGenerativeAI(
             google_api_key=cfg.api_key,
             model=GEMINI_MODEL,
         )
 
-    # This should be unreachable due to validation in _get_ai_client_config.
     raise HTTPException(
         status_code=500,
         detail=f"Unexpected AI provider '{cfg.provider}'.",
     )
 
 
-# Cached process-wide embeddings (free local model; no per-user config).
 _embeddings: Optional[Embeddings] = None
 
 

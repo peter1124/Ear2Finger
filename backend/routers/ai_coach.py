@@ -237,10 +237,8 @@ async def generate_coach_feedback(
     current_user: User = Depends(get_current_user),
 ) -> CoachFeedbackResponse:
     """Generate personalized feedback using the user's aggregated stats and chosen LLM.
-
-    Phase 1 uses the global /user/stats endpoint only (no Qdrant yet).
     """
-    # Load aggregated stats (global for now; ignore filters in body for Phase 1).
+    # Load aggregated stats
     stats = await _load_user_stats(db=db, current_user=current_user)
 
     # Build per-user LLM client from their configured provider + API key.
@@ -263,8 +261,7 @@ async def generate_coach_feedback(
     prompt = _build_prompt(stats)
 
     try:
-        # LangChain chat models support async invocation via .ainvoke().
-        result = await llm.ainvoke(prompt)  # type: ignore[attr-defined]
+        result = await llm.ainvoke(prompt)
     except Exception as exc:
         logger.exception(
             "ai_coach: error while calling LLM for user_id=%s: %s",
