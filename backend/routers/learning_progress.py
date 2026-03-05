@@ -1,13 +1,14 @@
 """Learning progress per user (scores, completed state, etc.)."""
 import json
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
 from typing import Any, Dict, List, Optional
 
-from database import get_db, User, LearningProgress, Video, Sentence
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from auth import get_current_user
+from database import LearningProgress, Sentence, User, Video, get_db
+from services.qdrant_client import ingest_learning_progress_event
 
 router = APIRouter()
 
@@ -116,6 +117,7 @@ async def get_progress(
 @router.post("/user/progress")
 async def upsert_progress(
     body: ProgressEntry,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -136,23 +138,39 @@ async def upsert_progress(
         if not sentence:
             raise HTTPException(status_code=404, detail="Sentence not found")
 
-    existing = db.query(LearningProgress).filter(
-        LearningProgress.user_id == current_user.id,
-        LearningProgress.video_id == body.video_id,
-        LearningProgress.sentence_id == body.sentence_id,
-    ).first()
+    existing = (
+        db.query(LearningProgress)
+        .filter(
+            LearningProgress.user_id == current_user.id,
+            LearningProgress.video_id == body.video_id,
+            LearningProgress.sentence_id == body.sentence_id,
+        )
+        .first()
+    )
 
     data_json = json.dumps(body.data)
+    target: LearningProgress
     if existing:
         existing.data = data_json
+        target = existing
     else:
-        db.add(LearningProgress(
+        target = LearningProgress(
             user_id=current_user.id,
             video_id=body.video_id,
             sentence_id=body.sentence_id,
             data=data_json,
-        ))
+        )
+        db.add(target)
     db.commit()
+    db.refresh(target)
+
+    # Ingest this learning event into Qdrant in the background so that
+    # the AI coach can later retrieve rich, contextual practice history.
+    background_tasks.add_task(
+        ingest_learning_progress_event,
+        learning_progress_id=target.id,
+    )
+
     return {"message": "Progress saved"}
 
 

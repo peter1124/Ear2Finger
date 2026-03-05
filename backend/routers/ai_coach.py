@@ -14,6 +14,7 @@ from auth import get_current_user
 from database import User, get_db
 from routers.learning_progress import UserStats as StatsModel, get_user_stats
 from services.ai_client_factory import make_llm_for_user
+from services.qdrant_client import search_sentences_by_queries
 
 logger = logging.getLogger("ai_coach")
 
@@ -37,6 +38,36 @@ class CoachFeedbackResponse(BaseModel):
 
     summary: str
     suggestions: List[str]
+
+
+class CoachRecommendPracticeRequest(BaseModel):
+    """Request body for practice recommendations.
+
+    Optionally scope recommendations to a specific video and control the
+    maximum number of items returned.
+    """
+
+    video_id: Optional[int] = None
+    limit: int = 10
+
+
+class PracticeRecommendationItem(BaseModel):
+    """One recommended sentence to practice, with a short rationale."""
+
+    sentence_id: int
+    video_id: int
+    sentence_text: str
+    start_time: float
+    end_time: float
+    video_title: Optional[str] = None
+    score: float
+    reasons: List[str]
+
+
+class CoachRecommendPracticeResponse(BaseModel):
+    """List of practice recommendations for the user."""
+
+    recommendations: List[PracticeRecommendationItem]
 
 
 async def _load_user_stats(
@@ -108,6 +139,41 @@ Return your answer as strict JSON with this exact shape (no extra keys, no prose
 """
 
     return f"{instructions.strip()}\n\nUser stats JSON:\n{stats_json}"
+
+
+def _select_weak_words_from_stats(
+    stats: StatsModel, max_words: int = 5
+) -> List[str]:
+    """
+    Choose a small set of high-signal "weak" words from the user's stats.
+
+    Priority:
+      1. Words with the highest incorrect_count.
+      2. Fallback to high hint_count words if needed.
+    """
+    selected: List[str] = []
+
+    for ws in stats.top_incorrect_words or []:
+        word = getattr(ws, "word", None)
+        incorrect_count = getattr(ws, "incorrect_count", 0)
+        if not word or incorrect_count <= 0:
+            continue
+        if word not in selected:
+            selected.append(word)
+        if len(selected) >= max_words:
+            return selected
+
+    for ws in stats.top_hint_words or []:
+        word = getattr(ws, "word", None)
+        hint_count = getattr(ws, "hint_count", 0)
+        if not word or hint_count <= 0:
+            continue
+        if word not in selected:
+            selected.append(word)
+        if len(selected) >= max_words:
+            break
+
+    return selected
 
 
 def _extract_feedback_from_model_output(text: str) -> Tuple[str, List[str]]:
@@ -220,3 +286,115 @@ async def generate_coach_feedback(
         )
 
     return CoachFeedbackResponse(summary=summary, suggestions=suggestions)
+
+
+@router.post(
+    "/ai/coach/recommend-practice",
+    response_model=CoachRecommendPracticeResponse,
+)
+async def recommend_practice_sentences(
+    body: CoachRecommendPracticeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> CoachRecommendPracticeResponse:
+    """
+    Recommend concrete sentences/videos to practice based on weak areas.
+
+    Uses the user's aggregated stats to find "problem" words, then queries the
+    Qdrant sentences collection for sentences that contain or are similar to
+    those words, filtered by user_id (and optionally video_id).
+    """
+    stats = await _load_user_stats(db=db, current_user=current_user)
+    weak_words = _select_weak_words_from_stats(stats)
+
+    if not weak_words:
+        # No practice history yet or no identifiable weak words; return an empty list.
+        return CoachRecommendPracticeResponse(recommendations=[])
+
+    # Cap limits defensively to avoid huge fan-out.
+    max_limit = 20
+    total_limit = max(1, min(body.limit, max_limit))
+    # To get a good candidate pool, we ask Qdrant for a few hits per query word.
+    per_query_limit = max(1, min(total_limit, 5))
+
+    try:
+        raw_hits = search_sentences_by_queries(
+            db=db,
+            user_id=current_user.id,
+            queries=weak_words,
+            video_id=body.video_id,
+            per_query_limit=per_query_limit,
+        )
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.exception(
+            "ai_coach: failed to query Qdrant for practice recommendations "
+            "user_id=%s video_id=%s: %s",
+            current_user.id,
+            body.video_id,
+            exc,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Practice recommendations are temporarily unavailable. Please try again later.",
+        ) from exc
+
+    if not raw_hits:
+        return CoachRecommendPracticeResponse(recommendations=[])
+
+    # Aggregate hits by sentence_id, merging scores and matched weak words.
+    aggregated: dict[int, dict] = {}
+
+    for hit in raw_hits:
+        sentence_id = hit.get("sentence_id")
+        if sentence_id is None:
+            continue
+
+        score = float(hit.get("score") or 0.0)
+        query = str(hit.get("query") or "").strip()
+
+        entry = aggregated.get(sentence_id)
+        if entry is None:
+            entry = {
+                "sentence_id": int(sentence_id),
+                "video_id": int(hit.get("video_id") or 0),
+                "sentence_text": str(hit.get("sentence_text") or ""),
+                "video_title": hit.get("title"),
+                "start_time": float(hit.get("start_time") or 0.0),
+                "end_time": float(hit.get("end_time") or 0.0),
+                "score": score,
+                "matched_queries": set(),  # type: ignore[dict-item]
+            }
+            aggregated[sentence_id] = entry
+
+        if score > entry["score"]:
+            entry["score"] = score
+        if query:
+            entry["matched_queries"].add(query)  # type: ignore[union-attr]
+
+    # Build final recommendation list.
+    items: List[PracticeRecommendationItem] = []
+    for data in aggregated.values():
+        matched_queries = sorted(list(data.pop("matched_queries")))  # type: ignore[arg-type]
+        reasons: List[str] = []
+        if matched_queries:
+            reasons.append(
+                "Contains words you often struggle with: " + ", ".join(matched_queries)
+            )
+
+        items.append(
+            PracticeRecommendationItem(
+                sentence_id=data["sentence_id"],
+                video_id=data["video_id"],
+                sentence_text=data["sentence_text"],
+                start_time=data["start_time"],
+                end_time=data["end_time"],
+                video_title=data.get("video_title"),
+                score=data["score"],
+                reasons=reasons,
+            )
+        )
+
+    items.sort(key=lambda x: x.score, reverse=True)
+    items = items[:total_limit]
+
+    return CoachRecommendPracticeResponse(recommendations=items)

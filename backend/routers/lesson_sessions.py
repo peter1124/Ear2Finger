@@ -1,12 +1,14 @@
 """Lesson session history: list and save sessions per video."""
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
-from sqlalchemy.orm import Session
 from typing import List, Optional
 
-from database import get_db, User, Video, LessonSession
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
 from auth import get_current_user
+from database import LessonSession, User, Video, get_db
+from services.qdrant_client import ingest_lesson_session_event
 
 router = APIRouter()
 
@@ -63,6 +65,7 @@ async def list_lesson_sessions(
 @router.post("/user/lesson-sessions", response_model=LessonSessionOut)
 async def save_lesson_session(
     body: LessonSessionSave,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -92,6 +95,11 @@ async def save_lesson_session(
         existing.incorrect_chars = body.incorrect_chars
         db.commit()
         db.refresh(existing)
+        # Index/update this session as a learning event in Qdrant.
+        background_tasks.add_task(
+            ingest_lesson_session_event,
+            lesson_session_id=existing.id,
+        )
         return existing
 
     session = LessonSession(
@@ -107,12 +115,19 @@ async def save_lesson_session(
     db.add(session)
     db.commit()
     db.refresh(session)
+
+    # Index this new session as a learning event in Qdrant.
+    background_tasks.add_task(
+        ingest_lesson_session_event,
+        lesson_session_id=session.id,
+    )
     return session
 
 
 @router.put("/user/lesson-sessions/current", response_model=LessonSessionOut)
 async def upsert_current_session(
     body: LessonSessionSave,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -146,6 +161,11 @@ async def upsert_current_session(
             existing.ended_at = body.ended_at
         db.commit()
         db.refresh(existing)
+        # Index/update this session as a learning event in Qdrant.
+        background_tasks.add_task(
+            ingest_lesson_session_event,
+            lesson_session_id=existing.id,
+        )
         return existing
 
     session = LessonSession(
@@ -161,4 +181,10 @@ async def upsert_current_session(
     db.add(session)
     db.commit()
     db.refresh(session)
+
+    # Index this new session as a learning event in Qdrant.
+    background_tasks.add_task(
+        ingest_lesson_session_event,
+        lesson_session_id=session.id,
+    )
     return session
