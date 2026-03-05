@@ -9,6 +9,13 @@ export default function Dashboard() {
   const [stats, setStats] = useState<UserStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [coachModalOpen, setCoachModalOpen] = useState(false)
+
+  const coachSuggestions = [
+    'Try slightly longer sentences to build stamina.',
+    'Review words you’ve missed 3+ times this week.',
+    'Aim for 5 more sentences today to keep your streak.',
+  ]
 
   useEffect(() => {
     setLoading(true)
@@ -44,16 +51,6 @@ export default function Dashboard() {
     () => Math.max(1, ...recentDaily.map((d) => d.total_sentences_practiced || 0)),
     [recentDaily]
   )
-
-  const maxDailyError = useMemo(
-    () =>
-      Math.max(
-        0.01,
-        ...recentDaily.map((d) => d.sentence_error_rate?.mean ?? 0)
-      ),
-    [recentDaily]
-  )
-
 
   return (
     <div className="h-screen flex flex-col bg-white">
@@ -187,10 +184,10 @@ export default function Dashboard() {
               <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div className="bg-white rounded-xl border border-gray-200 p-4">
                   <h2 className="text-sm font-semibold text-gray-900 mb-1">
-                    Daily sentences & difficulty
+                    Daily sentences practiced
                   </h2>
                   <p className="text-xs text-gray-500 mb-4">
-                    Last {recentDaily.length} days – bars: sentences, line: error rate.
+                    Last {recentDaily.length} days
                   </p>
                   {recentDaily.length === 0 ? (
                     <p className="text-xs text-gray-500">No practice data yet.</p>
@@ -199,25 +196,22 @@ export default function Dashboard() {
                       {recentDaily.map((d) => {
                         const sentences = d.total_sentences_practiced || 0
                         const barHeight = (sentences / maxDailySentences) * 100
-                        const errorMean = d.sentence_error_rate?.mean ?? 0
-                        const errorHeight = (errorMean / maxDailyError) * 100
                         return (
                           <div
                             key={d.date}
                             className="flex-1 flex flex-col items-center justify-end gap-1"
                           >
-                            <div className="relative w-full h-24 flex items-end">
+                            <div className="w-full h-24 flex items-end">
                               <div
                                 className="w-full bg-indigo-100 rounded-t-md"
                                 style={{ height: `${barHeight || 2}%` }}
                               />
-                              <div
-                                className="absolute bottom-0 left-1/2 -translate-x-1/2 w-1 rounded-full bg-rose-400"
-                                style={{ height: `${errorHeight || 2}%` }}
-                              />
                             </div>
-                            <span className="mt-1 text-[10px] text-gray-500">
+                            <span className="mt-1.5 text-[10px] text-gray-500 text-center leading-tight">
                               {d.date.slice(5)}
+                              <span className="block text-gray-800 font-medium mt-0.5">
+                                {sentences}
+                              </span>
                             </span>
                           </div>
                         )
@@ -226,28 +220,35 @@ export default function Dashboard() {
                   )}
                 </div>
 
-                <div className="bg-white rounded-xl border border-gray-200 p-4">
-                  <h2 className="text-sm font-semibold text-gray-900 mb-1">
-                    Sentence & vocabulary difficulty
-                  </h2>
-                  <p className="text-xs text-gray-500 mb-4">
-                    Average words per sentence and characters per word.
-                  </p>
-                  <div className="space-y-3">
-                    <DifficultyBar
-                      label="Sentence length (words)"
-                      stats={stats.sentence_length_words}
-                      unit="words"
-                      maxExpected={25}
-                    />
-                    <DifficultyBar
-                      label="Word length (characters)"
-                      stats={stats.word_length_chars}
-                      unit="chars"
-                      maxExpected={12}
-                    />
+                <button
+                  type="button"
+                  onClick={() => setCoachModalOpen(true)}
+                  className="bg-white rounded-xl border border-gray-200 pl-6 pr-4 pt-4 pb-4 w-full hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 flex flex-col min-h-[200px]"
+                >
+                  <div className="flex flex-col items-center text-center flex-1">
+                    <h2 className="text-sm font-semibold text-gray-900 mb-1">
+                      AI Language Coach
+                    </h2>
+                    <p className="text-xs text-gray-500 mb-4">
+                      Learning tips from AI
+                    </p>
+                    <ul className="text-xs text-gray-500 space-y-2 w-full text-left mt-0 pl-24 pt-4">
+                      {coachSuggestions.slice(0, 3).map((s, i) => (
+                        <li key={i} className="flex items-start gap-2 line-clamp-1">
+                          <span className="shrink-0 mt-0.5 text-indigo-500" aria-hidden>
+                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                              <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                            </svg>
+                          </span>
+                          <span className="min-w-0">{s}</span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
-                </div>
+                  <span className="text-xs text-gray-500 self-end">
+                    Tap for more →
+                  </span>
+                </button>
               </section>
 
               {/* Top incorrect words — horizontal box chart by retry count (median proxy), sorted high → low */}
@@ -290,6 +291,53 @@ export default function Dashboard() {
           )}
         </div>
       </main>
+
+      {/* AI Language Coach Modal */}
+      {coachModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+          onClick={() => setCoachModalOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="coach-modal-title"
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[85vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+              <h2 id="coach-modal-title" className="text-lg font-semibold text-gray-900">
+                AI Language Coach (Under construction)
+              </h2>
+              <button
+                type="button"
+                onClick={() => setCoachModalOpen(false)}
+                className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                aria-label="Close"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-4 overflow-y-auto">
+              <p className="text-sm text-gray-600 mb-4">
+                Personalized tips based on your practice. Connect an AI key in Settings for real suggestions.
+              </p>
+              <ul className="space-y-3">
+                {coachSuggestions.map((s, i) => (
+                  <li key={i} className="flex gap-3 text-sm text-gray-700">
+                    <span className="shrink-0 w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-medium">
+                      {i + 1}
+                    </span>
+                    {s}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
