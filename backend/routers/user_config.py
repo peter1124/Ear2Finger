@@ -65,10 +65,15 @@ async def get_config(
             }
             ai_provider = title_map.get(legacy_vendor_norm)
 
-    # Per-provider key presence, including legacy single api_key
-    has_openai = bool(configs.get("openai_api_key"))
-    has_gemini = bool(configs.get("gemini_api_key"))
-    has_anthropic = bool(configs.get("anthropic_api_key"))
+    # Per-provider key presence: canonical row (e.g. openai_api_key) or any managed key (e.g. openai_api_key:uuid)
+    def _has_provider_key(prefix: str) -> bool:
+        if configs.get(prefix):
+            return True
+        return any(k.startswith(prefix + ":") and configs.get(k) for k in configs)
+
+    has_openai = _has_provider_key("openai_api_key")
+    has_gemini = _has_provider_key("gemini_api_key")
+    has_anthropic = _has_provider_key("anthropic_api_key")
 
     legacy_api_key = configs.get("api_key")
     if legacy_api_key and ai_provider in AI_PROVIDER_KEYS:

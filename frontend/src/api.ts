@@ -268,3 +268,50 @@ export async function upsertCurrentLessonSession(body: {
   const { data } = await api.put<LessonSessionRecord>('/api/user/lesson-sessions/current', body)
   return data
 }
+
+export interface CoachFeedbackRequest {
+  video_id?: number | null
+  from_date?: string | null
+  to_date?: string | null
+}
+
+export interface CoachFeedbackResponse {
+  summary: string
+  suggestions: string[]
+}
+
+export async function getCoachFeedback(
+  body: CoachFeedbackRequest = {}
+): Promise<CoachFeedbackResponse> {
+  const { data } = await api.post<CoachFeedbackResponse>('/api/ai/coach/feedback', body)
+  return data
+}
+
+export interface PracticeRecommendationItem {
+  sentence_id: number
+  video_id: number
+  sentence_text: string
+  start_time: number
+  end_time: number
+  video_title?: string | null
+  score: number
+  reasons: string[]
+}
+
+export interface CoachRecommendPracticeResponse {
+  recommendations: PracticeRecommendationItem[]
+}
+
+export async function getCoachRecommendations(body: {
+  video_id?: number | null
+  limit?: number
+} = {}): Promise<CoachRecommendPracticeResponse> {
+  const { data } = await api.post<CoachRecommendPracticeResponse>(
+    '/api/ai/coach/recommend-practice',
+    {
+      limit: 10,
+      ...body,
+    }
+  )
+  return data
+}

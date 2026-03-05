@@ -19,7 +19,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from database import UserConfig
-from config import EMBEDDING_MODEL_NAME
+from config import EMBEDDING_MODEL_NAME, GEMINI_MODEL
 
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -86,13 +86,19 @@ def _get_active_api_key(configs: Dict[str, Optional[str]], provider: str) -> Opt
     """
     Resolve the active API key for a provider, considering canonical and legacy layout.
 
-    - Preferred: "<provider>_api_key"
+    - Preferred: "<provider>_api_key" (canonical row set by Settings / ai_keys)
+    - Fallback: any "<provider>_api_key:<id>" managed row (from add_ai_key)
     - Legacy: "api_key" (used with ai_vendor/ai_provider)
     """
     canonical = f"{provider}_api_key"
     val = configs.get(canonical)
     if val:
         return val
+
+    # Managed keys from Settings: gemini_api_key:uuid -> value
+    for key, val in configs.items():
+        if key.startswith(canonical + ":") and val:
+            return val
 
     legacy = configs.get("api_key")
     if legacy:
@@ -155,7 +161,11 @@ def make_llm_for_user(user_id: int, db: Session) -> BaseChatModel:
         return ChatOpenAI(api_key=cfg.api_key)
 
     if cfg.provider == "gemini":
-        return ChatGoogleGenerativeAI(google_api_key=cfg.api_key)
+        # model is required by ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(
+            google_api_key=cfg.api_key,
+            model=GEMINI_MODEL,
+        )
 
     # This should be unreachable due to validation in _get_ai_client_config.
     raise HTTPException(

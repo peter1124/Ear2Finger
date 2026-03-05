@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { getUserStats, type DailyUserStats, type UserStats, type WordStat } from '../api'
+import {
+  getUserStats,
+  getCoachFeedback,
+  type DailyUserStats,
+  type UserStats,
+  type WordStat,
+  type CoachFeedbackResponse,
+} from '../api'
 
 export default function Dashboard() {
   const navigate = useNavigate()
@@ -10,12 +17,9 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [coachModalOpen, setCoachModalOpen] = useState(false)
-
-  const coachSuggestions = [
-    'Try slightly longer sentences to build stamina.',
-    'Review words you’ve missed 3+ times this week.',
-    'Aim for 5 more sentences today to keep your streak.',
-  ]
+  const [coachLoading, setCoachLoading] = useState(false)
+  const [coachError, setCoachError] = useState<string | null>(null)
+  const [coachFeedback, setCoachFeedback] = useState<CoachFeedbackResponse | null>(null)
 
   useEffect(() => {
     setLoading(true)
@@ -28,6 +32,30 @@ export default function Dashboard() {
       })
       .finally(() => setLoading(false))
   }, [])
+
+  const loadCoachFeedback = () => {
+    setCoachLoading(true)
+    setCoachError(null)
+    getCoachFeedback()
+      .then((data) => {
+        setCoachFeedback(data)
+      })
+      .catch((e) => {
+        const err = e as { response?: { data?: { detail?: string } } }
+        setCoachError(
+          err.response?.data?.detail ||
+            'AI coach is unavailable. Check your AI API key in Settings.'
+        )
+      })
+      .finally(() => setCoachLoading(false))
+  }
+
+  const handleOpenCoach = () => {
+    setCoachModalOpen(true)
+    if (!coachFeedback && !coachLoading) {
+      loadCoachFeedback()
+    }
+  }
 
   const recentDaily = useMemo<DailyUserStats[]>(() => {
     if (!stats?.daily) return []
@@ -222,7 +250,7 @@ export default function Dashboard() {
 
                 <button
                   type="button"
-                  onClick={() => setCoachModalOpen(true)}
+                  onClick={handleOpenCoach}
                   className="bg-white rounded-xl border border-gray-200 pl-6 pr-4 pt-4 pb-4 w-full hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 flex flex-col min-h-[200px]"
                 >
                   <div className="flex flex-col items-center text-center flex-1">
@@ -233,7 +261,16 @@ export default function Dashboard() {
                       Learning tips from AI
                     </p>
                     <ul className="text-xs text-gray-500 space-y-2 w-full text-left mt-0 pl-24 pt-4">
-                      {coachSuggestions.slice(0, 3).map((s, i) => (
+                      {(coachFeedback?.suggestions?.length
+                        ? coachFeedback.suggestions
+                        : [
+                            'Try slightly longer sentences to build stamina.',
+                            'Review words you’ve missed 3+ times this week.',
+                            'Aim for 5 more sentences today to keep your streak.',
+                          ]
+                      )
+                        .slice(0, 3)
+                        .map((s, i) => (
                         <li key={i} className="flex items-start gap-2 line-clamp-1">
                           <span className="shrink-0 mt-0.5 text-indigo-500" aria-hidden>
                             <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
@@ -307,7 +344,7 @@ export default function Dashboard() {
           >
             <div className="p-4 border-b border-gray-200 flex items-center justify-between">
               <h2 id="coach-modal-title" className="text-lg font-semibold text-gray-900">
-                AI Language Coach (Under construction)
+                Your AI Coach
               </h2>
               <button
                 type="button"
@@ -321,19 +358,62 @@ export default function Dashboard() {
               </button>
             </div>
             <div className="p-4 overflow-y-auto">
-              <p className="text-sm text-gray-600 mb-4">
-                Personalized tips based on your practice. Connect an AI key in Settings for real suggestions.
-              </p>
-              <ul className="space-y-3">
-                {coachSuggestions.map((s, i) => (
-                  <li key={i} className="flex gap-3 text-sm text-gray-700">
-                    <span className="shrink-0 w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-medium">
-                      {i + 1}
-                    </span>
-                    {s}
-                  </li>
-                ))}
-              </ul>
+              {coachError && (
+                <div className="mb-3 text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
+                  {coachError}{' '}
+                  <button
+                    type="button"
+                    onClick={() => navigate('/settings')}
+                    className="underline font-medium"
+                  >
+                    Open AI settings
+                  </button>
+                </div>
+              )}
+              {coachLoading && !coachFeedback && !coachError && (
+                <p className="text-sm text-gray-600 mb-4">Asking your AI coach…</p>
+              )}
+              {coachFeedback && (
+                <div className="space-y-4">
+                  <p className="text-sm text-gray-700 whitespace-pre-line">
+                    {coachFeedback.summary}
+                  </p>
+                  {coachFeedback.suggestions?.length > 0 && (
+                    <ul className="space-y-3">
+                      {coachFeedback.suggestions.map((s, i) => (
+                        <li key={i} className="flex gap-3 text-sm text-gray-700">
+                          <span className="shrink-0 w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-medium">
+                            {i + 1}
+                          </span>
+                          {s}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+              {!coachLoading && !coachFeedback && !coachError && (
+                <p className="text-sm text-gray-600">
+                  Personalized tips based on your practice. Connect an AI key in Settings, then
+                  tap &ldquo;Ask coach&rdquo; again.
+                </p>
+              )}
+              <div className="mt-4 flex justify-between items-center text-xs text-gray-500">
+                <button
+                  type="button"
+                  onClick={loadCoachFeedback}
+                  className="inline-flex items-center rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Refresh feedback
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/settings')}
+                  className="underline"
+                >
+                  Configure AI provider
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -362,38 +442,4 @@ function StatCard({ label, value, sublabel }: StatCardProps) {
   )
 }
 
-type DifficultyBarProps = {
-  label: string
-  stats?: DistributionStats | null
-  unit: string
-  maxExpected: number
-}
-
-type DistributionStats = {
-  mean: number
-  variance: number
-  p25: number
-  p50: number
-  p75: number
-}
-
-function DifficultyBar({ label, stats, unit, maxExpected }: DifficultyBarProps) {
-  const mean = stats?.mean ?? 0
-  const pct = Math.max(2, Math.min(100, (mean / maxExpected) * 100))
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-xs font-medium text-gray-700">{label}</span>
-        <span className="text-xs text-gray-500">
-          {mean.toFixed(1)} {unit}
-        </span>
-      </div>
-      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-        <div
-          className="h-full bg-indigo-500 rounded-full"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-    </div>
-  )
-}
+// DifficultyBar previously visualized difficulty distributions, but is currently unused.

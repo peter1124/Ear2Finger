@@ -1,6 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, upsertCurrentLessonSession, saveLessonSession, type LessonSessionRecord } from '../api'
+import {
+  api,
+  upsertCurrentLessonSession,
+  saveLessonSession,
+  getCoachFeedback,
+  getCoachRecommendations,
+  type LessonSessionRecord,
+  type CoachFeedbackResponse,
+  type PracticeRecommendationItem,
+} from '../api'
 import { useAuth } from '../contexts/AuthContext'
 import { useWorkspace, type Lesson } from '../contexts/WorkspaceContext'
 import ImportModal from './ImportModal'
@@ -82,6 +91,16 @@ export default function Workspace() {
   const [isImportInProgress, setIsImportInProgress] = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [audioBlobUrl, setAudioBlobUrl] = useState<string | null>(null)
+  const [coachPanelOpen, setCoachPanelOpen] = useState(false)
+  const [coachLoading, setCoachLoading] = useState(false)
+  const [coachError, setCoachError] = useState<string | null>(null)
+  const [coachFeedback, setCoachFeedback] = useState<CoachFeedbackResponse | null>(null)
+  const [practiceLoading, setPracticeLoading] = useState(false)
+  const [practiceError, setPracticeError] = useState<string | null>(null)
+  const [practiceRecommendations, setPracticeRecommendations] = useState<
+    PracticeRecommendationItem[] | null
+  >(null)
+  const [coachShownForVideoId, setCoachShownForVideoId] = useState<number | null>(null)
 
   // Load playlists and lessons on component mount
   useEffect(() => {
@@ -332,7 +351,6 @@ export default function Workspace() {
             setCurrentTime(targetTime)
             programmaticSeekRef.current = true
             setIsPlaying(true)
-            let fallback: ReturnType<typeof setTimeout>
             const onSeeked = () => {
               audioEl.removeEventListener('seeked', onSeeked)
               clearTimeout(fallback)
@@ -340,7 +358,7 @@ export default function Workspace() {
             }
             audioEl.addEventListener('seeked', onSeeked, { once: true })
             audioEl.currentTime = targetTime
-            fallback = setTimeout(() => {
+            const fallback = setTimeout(() => {
               if (audioEl.paused) {
                 audioEl.removeEventListener('seeked', onSeeked)
                 audioEl.play().catch(() => {})
@@ -594,6 +612,70 @@ export default function Workspace() {
     videoSessionScores.hintCount,
     videoSessionScores.incorrectChars,
   ])
+
+  const isLessonFinished =
+    sentences.length > 0 &&
+    currentSentenceIndex >= sentences.length - 1 &&
+    Boolean(isCurrentSentenceFullyCorrect)
+
+  const loadCoachFeedbackForVideo = (videoId: number | null) => {
+    if (!videoId) return
+    setCoachLoading(true)
+    setCoachError(null)
+    setCoachPanelOpen(true)
+    getCoachFeedback({ video_id: videoId })
+      .then((data) => {
+        setCoachFeedback(data)
+      })
+      .catch((e) => {
+        const err = e as { response?: { data?: { detail?: string } } }
+        setCoachError(
+          err.response?.data?.detail ||
+            'AI coach is unavailable. Check your AI API key in Settings.'
+        )
+      })
+      .finally(() => setCoachLoading(false))
+  }
+
+  const loadPracticeRecommendationsForVideo = (videoId: number | null) => {
+    if (!videoId) return
+    setPracticeLoading(true)
+    setPracticeError(null)
+    getCoachRecommendations({ video_id: videoId, limit: 6 })
+      .then((data) => {
+        setPracticeRecommendations(data.recommendations ?? [])
+      })
+      .catch((e) => {
+        const err = e as { response?: { data?: { detail?: string } } }
+        setPracticeError(
+          err.response?.data?.detail ||
+            'Practice recommendations are temporarily unavailable. Try again later.'
+        )
+      })
+      .finally(() => setPracticeLoading(false))
+  }
+
+  useEffect(() => {
+    const videoId = selectedLesson?.video_id ?? null
+    if (!videoId || !isLessonFinished) return
+    if (coachShownForVideoId === videoId) return
+    setCoachShownForVideoId(videoId)
+    setCoachLoading(true)
+    setCoachError(null)
+    setCoachPanelOpen(true)
+    getCoachFeedback({ video_id: videoId })
+      .then((data) => {
+        setCoachFeedback(data)
+      })
+      .catch((e) => {
+        const err = e as { response?: { data?: { detail?: string } } }
+        setCoachError(
+          err.response?.data?.detail ||
+            'AI coach is unavailable. Check your AI API key in Settings.'
+        )
+      })
+      .finally(() => setCoachLoading(false))
+  }, [selectedLesson?.video_id, isLessonFinished, coachShownForVideoId])
 
   // Reset per-word inputs and hint when current sentence changes. Skip on initial mount to preserve restored progress.
   useEffect(() => {
@@ -1144,6 +1226,15 @@ export default function Workspace() {
                   <div className="w-3 h-3 bg-red-500 rounded-full" />
                   <span className="text-sm text-gray-700">{videoSessionScores.incorrectChars}</span>
                 </div>
+                {selectedLesson && (
+                  <button
+                    type="button"
+                    onClick={() => loadCoachFeedbackForVideo(selectedLesson.video_id)}
+                    className="ml-4 inline-flex items-center rounded-full border border-indigo-200 bg-white px-3 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-50 hover:border-indigo-300"
+                  >
+                    Ask coach
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1328,11 +1419,7 @@ export default function Workspace() {
       <LessonHistory
         videoId={selectedLesson?.video_id ?? null}
         onResume={handleResumeLessonSession}
-        isLessonFinished={
-          sentences.length > 0 &&
-          currentSentenceIndex >= sentences.length - 1 &&
-          Boolean(isCurrentSentenceFullyCorrect)
-        }
+        isLessonFinished={isLessonFinished}
       />
 
       {/* Notifications */}
@@ -1353,6 +1440,132 @@ export default function Workspace() {
           </div>
         ))}
       </div>
+
+      {/* AI Coach side panel */}
+      {coachPanelOpen && (
+        <div className="fixed right-4 bottom-24 z-50 w-80 max-h-[60vh] rounded-lg border border-gray-200 bg-white shadow-xl flex flex-col">
+          <div className="px-3 py-2 border-b border-gray-200 flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-900">Session recap by AI coach</h2>
+              {selectedLesson && (
+                <p className="text-[11px] text-gray-500 truncate">
+                  {selectedLesson.title}
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setCoachPanelOpen(false)}
+              className="p-1 rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+              aria-label="Close"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <div className="px-3 py-2 text-xs text-gray-600 border-b border-gray-100">
+            AI feedback based on your current practice stats for this video.
+          </div>
+          <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3 text-sm">
+            {coachError && (
+              <div className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
+                {coachError}{' '}
+                <button
+                  type="button"
+                  onClick={() => navigate('/settings')}
+                  className="underline font-medium"
+                >
+                  Open AI settings
+                </button>
+              </div>
+            )}
+            {coachLoading && !coachFeedback && !coachError && (
+              <p className="text-sm text-gray-600">Asking your AI coach…</p>
+            )}
+            {coachFeedback && (
+              <>
+                <p className="text-sm text-gray-700 whitespace-pre-line">
+                  {coachFeedback.summary}
+                </p>
+                {coachFeedback.suggestions?.length > 0 && (
+                  <ul className="space-y-2">
+                    {coachFeedback.suggestions.map((s, i) => (
+                      <li key={i} className="flex gap-2 text-sm text-gray-700">
+                        <span className="mt-0.5 w-4 h-4 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-[10px] font-medium">
+                          {i + 1}
+                        </span>
+                        <span>{s}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            )}
+            {!coachLoading && !coachFeedback && !coachError && (
+              <p className="text-sm text-gray-600">
+                Connect an AI key in Settings and click &ldquo;Ask coach&rdquo; to see personalized
+                tips for this session.
+              </p>
+            )}
+            <div className="pt-2 border-t border-gray-100 space-y-2">
+              <button
+                type="button"
+                disabled={!selectedLesson || coachLoading}
+                onClick={() => selectedLesson && loadCoachFeedbackForVideo(selectedLesson.video_id)}
+                className="w-full inline-flex items-center justify-center rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                {coachLoading ? 'Refreshing…' : 'Refresh recap'}
+              </button>
+              <button
+                type="button"
+                disabled={!selectedLesson || practiceLoading}
+                onClick={() =>
+                  selectedLesson && loadPracticeRecommendationsForVideo(selectedLesson.video_id)
+                }
+                className="w-full inline-flex items-center justify-center rounded-md border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+              >
+                {practiceLoading ? 'Finding practice sentences…' : 'View practice recommendations'}
+              </button>
+              {practiceError && (
+                <div className="text-xs text-red-600 bg-red-50 px-2 py-1 rounded-lg">
+                  {practiceError}
+                </div>
+              )}
+              {practiceRecommendations && practiceRecommendations.length > 0 && (
+                <div className="space-y-2">
+                  {practiceRecommendations.map((rec) => (
+                    <div
+                      key={`${rec.video_id}-${rec.sentence_id}-${rec.start_time}`}
+                      className="border border-gray-100 rounded-md px-2 py-1.5 bg-gray-50/60"
+                    >
+                      <div className="text-xs font-medium text-gray-800 line-clamp-2">
+                        {rec.sentence_text}
+                      </div>
+                      <div className="mt-0.5 flex justify-between items-center text-[11px] text-gray-500">
+                        <span className="truncate">
+                          {rec.video_title || 'Video'} · {Math.round(rec.start_time)}s–
+                          {Math.round(rec.end_time)}s
+                        </span>
+                        <span className="ml-2 text-[10px] text-indigo-600">
+                          Score {rec.score.toFixed(2)}
+                        </span>
+                      </div>
+                      {rec.reasons?.length > 0 && (
+                        <ul className="mt-1 text-[11px] text-gray-600 list-disc list-inside space-y-0.5">
+                          {rec.reasons.map((r, idx) => (
+                            <li key={idx}>{r}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

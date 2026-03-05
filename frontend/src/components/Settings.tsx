@@ -352,7 +352,15 @@ export default function Settings() {
         <main className="flex-1 overflow-y-auto bg-white p-6 flex justify-center">
           {activeSection === 'ai-api-key' && (
             <div className="w-full max-w-3xl">
-              <h1 className="text-2xl font-bold text-gray-900 mb-6">AI API-KEY</h1>
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">AI API-KEY</h1>
+              <p className="text-sm text-gray-600 mb-6">
+                Current provider: <strong className="text-gray-900">{aiProvider === 'openai' ? 'OpenAI' : aiProvider === 'gemini' ? 'Gemini' : 'Anthropic'}</strong>
+                {(aiProvider === 'openai' && hasOpenaiKey) ||
+                 (aiProvider === 'gemini' && hasGeminiKey) ||
+                 (aiProvider === 'anthropic' && hasAnthropicKey)
+                  ? ' • API key configured'
+                  : ' • No API key saved for this provider'}
+              </p>
 
               <div className="space-y-6">
                 {aiConfigError && (
