@@ -47,6 +47,7 @@ async def list_lesson_sessions(
     video = db.query(Video).filter(
         Video.id == video_id,
         Video.user_id == current_user.id,
+        Video.deleted_at.is_(None),
     ).first()
     if not video:
         raise HTTPException(status_code=404, detail="Lesson not found")
@@ -73,6 +74,7 @@ async def save_lesson_session(
     video = db.query(Video).filter(
         Video.id == body.video_id,
         Video.user_id == current_user.id,
+        Video.deleted_at.is_(None),
     ).first()
     if not video:
         raise HTTPException(status_code=404, detail="Lesson not found")
@@ -138,6 +140,7 @@ async def upsert_current_session(
     video = db.query(Video).filter(
         Video.id == body.video_id,
         Video.user_id == current_user.id,
+        Video.deleted_at.is_(None),
     ).first()
     if not video:
         raise HTTPException(status_code=404, detail="Lesson not found")

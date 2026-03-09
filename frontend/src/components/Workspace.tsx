@@ -6,6 +6,11 @@ import {
   saveLessonSession,
   getCoachFeedback,
   getCoachRecommendations,
+  createPlaylist,
+  updatePlaylist,
+  deletePlaylist,
+  removeVideoFromPlaylist,
+  deleteVideo,
   type LessonSessionRecord,
   type CoachFeedbackResponse,
   type PracticeRecommendationItem,
@@ -101,6 +106,22 @@ export default function Workspace() {
     PracticeRecommendationItem[] | null
   >(null)
   const [coachShownForVideoId, setCoachShownForVideoId] = useState<number | null>(null)
+  const [lessonMenuOpen, setLessonMenuOpen] = useState<number | null>(null)
+  const [playlistMenuOpen, setPlaylistMenuOpen] = useState(false)
+
+  useEffect(() => {
+    if (!lessonMenuOpen) return
+    const onClose = () => setLessonMenuOpen(null)
+    window.addEventListener('click', onClose)
+    return () => window.removeEventListener('click', onClose)
+  }, [lessonMenuOpen])
+
+  useEffect(() => {
+    if (!playlistMenuOpen) return
+    const onClose = () => setPlaylistMenuOpen(false)
+    window.addEventListener('click', onClose)
+    return () => window.removeEventListener('click', onClose)
+  }, [playlistMenuOpen])
 
   // Load playlists and lessons on component mount
   useEffect(() => {
@@ -213,6 +234,84 @@ export default function Workspace() {
     }, 5000)
   }
 
+  const handleNewPlaylist = async () => {
+    const name = window.prompt('New playlist name:', 'My Playlist')
+    if (!name?.trim()) return
+    try {
+      const created = await createPlaylist(name.trim())
+      await fetchPlaylists()
+      setSelectedPlaylistId(created.id)
+      pushNotification('success', 'Playlist created.')
+    } catch (err) {
+      pushNotification('error', 'Failed to create playlist.')
+    }
+  }
+
+  const handleRenamePlaylist = async () => {
+    if (!selectedPlaylistId) return
+    const playlist = playlists.find((p) => p.id === selectedPlaylistId)
+    const name = window.prompt('Rename playlist:', playlist?.name ?? '')
+    if (!name?.trim()) return
+    try {
+      await updatePlaylist(selectedPlaylistId, name.trim())
+      await fetchPlaylists()
+      pushNotification('success', 'Playlist renamed.')
+    } catch (err) {
+      pushNotification('error', 'Failed to rename playlist.')
+    }
+  }
+
+  const handleDeletePlaylist = async () => {
+    if (!selectedPlaylistId) return
+    if (!window.confirm('Delete this playlist? Lessons will not be deleted.')) return
+    try {
+      await deletePlaylist(selectedPlaylistId)
+      await fetchPlaylists()
+      setSelectedPlaylistId(playlists.length > 1 ? playlists.find((p) => p.id !== selectedPlaylistId)?.id ?? null : null)
+      setSelectedLesson(null)
+      setLessons([])
+      pushNotification('success', 'Playlist deleted.')
+    } catch (err) {
+      pushNotification('error', 'Failed to delete playlist.')
+    }
+  }
+
+  const handleRemoveFromPlaylist = async (lesson: Lesson) => {
+    if (!selectedPlaylistId) return
+    if (!window.confirm(`Remove "${lesson.title}" from this playlist?`)) return
+    try {
+      await removeVideoFromPlaylist(selectedPlaylistId, lesson.video_id)
+      await fetchLessons()
+      if (selectedLesson?.video_id === lesson.video_id) {
+        setSelectedLesson(null)
+        setSentences([])
+        setSentencesVideoId(null)
+      }
+      pushNotification('success', 'Removed from playlist.')
+    } catch (err) {
+      pushNotification('error', 'Failed to remove.')
+    }
+    setLessonMenuOpen(null)
+  }
+
+  const handleDeleteLesson = async (lesson: Lesson) => {
+    if (!window.confirm(`Delete "${lesson.title}"? It will be removed from all playlists. Your learning data will be preserved for analysis.`)) return
+    try {
+      await deleteVideo(lesson.video_id)
+      await fetchPlaylists()
+      await fetchLessons()
+      if (selectedLesson?.video_id === lesson.video_id) {
+        setSelectedLesson(null)
+        setSentences([])
+        setSentencesVideoId(null)
+      }
+      pushNotification('success', 'Lesson removed. Learning data preserved.')
+    } catch (err) {
+      pushNotification('error', 'Failed to delete lesson.')
+    }
+    setLessonMenuOpen(null)
+  }
+
   const runImportInBackground = async (payload: { url: string; playlistId: number }) => {
     setIsImportInProgress(true)
     try {
@@ -246,6 +345,7 @@ export default function Workspace() {
   }
 
   const handleLessonSelect = (lesson: Lesson) => {
+    setLessonMenuOpen(null)
     if (
       selectedLesson &&
       lesson.video_id !== selectedLesson.video_id &&
@@ -926,22 +1026,80 @@ export default function Workspace() {
         {/* Left Sidebar */}
         <aside className="w-80 bg-gray-50 border-r border-gray-200 flex flex-col">
           <div className="p-4 border-b border-gray-200">
-            <div className="relative">
-              <select
-                value={selectedPlaylistId || ''}
-                onChange={(e) => setSelectedPlaylistId(Number(e.target.value))}
-                className="w-full appearance-none bg-white rounded-lg border border-gray-200 px-3 py-2 pr-8 cursor-pointer hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              >
-                {playlists.map((playlist) => (
-                  <option key={playlist.id} value={playlist.id}>
-                    {playlist.name}
-                  </option>
-                ))}
-              </select>
-              <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
+            <div className="flex items-center gap-1">
+              <div className="relative flex-1 min-w-0">
+                <select
+                  value={selectedPlaylistId || ''}
+                  onChange={(e) => setSelectedPlaylistId(Number(e.target.value))}
+                  className="w-full appearance-none bg-white rounded-lg border border-gray-200 px-3 py-2 pr-8 cursor-pointer hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                >
+                  {playlists.map((playlist) => (
+                    <option key={playlist.id} value={playlist.id}>
+                      {playlist.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </div>
+              <div className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setPlaylistMenuOpen(!playlistMenuOpen)
+                  }}
+                  className="p-2 rounded text-gray-500 hover:bg-gray-200 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  aria-label="Playlist menu"
+                >
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                  </svg>
+                </button>
+                {playlistMenuOpen && (
+                  <div
+                    className="absolute right-0 top-full mt-1 z-10 py-1 bg-white border border-gray-200 rounded-lg shadow-lg text-left min-w-[160px]"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleNewPlaylist()
+                        setPlaylistMenuOpen(false)
+                      }}
+                      className="block w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 text-left"
+                    >
+                      New playlist
+                    </button>
+                    {selectedPlaylistId && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleRenamePlaylist()
+                            setPlaylistMenuOpen(false)
+                          }}
+                          className="block w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 text-left"
+                        >
+                          Rename
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleDeletePlaylist()
+                            setPlaylistMenuOpen(false)
+                          }}
+                          className="block w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 text-left"
+                        >
+                          Delete playlist
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -950,14 +1108,50 @@ export default function Workspace() {
             {lessons.map((lesson) => (
               <div
                 key={lesson.id}
-                onClick={() => handleLessonSelect(lesson)}
-                className={`p-4 rounded-lg cursor-pointer transition-colors ${
+                className={`relative p-4 rounded-lg cursor-pointer transition-colors group ${
                   selectedLesson?.id === lesson.id
                     ? 'bg-gray-900 text-white'
                     : 'bg-white hover:bg-gray-100'
                 }`}
+                onClick={() => handleLessonSelect(lesson)}
               >
-                <div className="flex items-start justify-between mb-1">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setLessonMenuOpen(lessonMenuOpen === lesson.id ? null : lesson.id)
+                  }}
+                  className={`absolute top-2 right-2 p-1 rounded opacity-70 hover:opacity-100 ${
+                    selectedLesson?.id === lesson.id ? 'text-gray-300 hover:bg-gray-700' : 'text-gray-500 hover:bg-gray-200'
+                  }`}
+                  aria-label="Lesson menu"
+                >
+                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                    <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                  </svg>
+                </button>
+                {lessonMenuOpen === lesson.id && (
+                  <div
+                    className="absolute right-2 top-10 z-10 py-1 bg-white border border-gray-200 rounded-lg shadow-lg text-left min-w-[160px]"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveFromPlaylist(lesson)}
+                      className="block w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 text-left"
+                    >
+                      Remove from playlist
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteLesson(lesson)}
+                      className="block w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 text-left"
+                    >
+                      Delete lesson
+                    </button>
+                  </div>
+                )}
+                <div className="flex items-start justify-between mb-1 pr-6">
                   <h3 className={`font-small ${selectedLesson?.id === lesson.id ? 'text-white' : 'text-gray-900'}`}>
                     {lesson.title}
                   </h3>

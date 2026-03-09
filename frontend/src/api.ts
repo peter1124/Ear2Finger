@@ -315,3 +315,25 @@ export async function getCoachRecommendations(body: {
   )
   return data
 }
+
+export async function createPlaylist(name: string): Promise<{ id: number; name: string; created_at: string; video_count: number }> {
+  const { data } = await api.post('/api/playlists', { name })
+  return data
+}
+
+export async function updatePlaylist(playlistId: number, name: string): Promise<{ id: number; name: string; created_at: string; video_count: number }> {
+  const { data } = await api.patch(`/api/playlists/${playlistId}`, { name })
+  return data
+}
+
+export async function deletePlaylist(playlistId: number): Promise<void> {
+  await api.delete(`/api/playlists/${playlistId}`)
+}
+
+export async function removeVideoFromPlaylist(playlistId: number, videoId: number): Promise<void> {
+  await api.delete(`/api/playlists/${playlistId}/videos/${videoId}`)
+}
+
+export async function deleteVideo(videoId: number): Promise<void> {
+  await api.delete(`/api/youtube/videos/${videoId}`)
+}

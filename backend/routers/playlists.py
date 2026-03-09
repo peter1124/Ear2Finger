@@ -12,6 +12,10 @@ class PlaylistCreate(BaseModel):
     name: str
 
 
+class PlaylistUpdate(BaseModel):
+    name: str
+
+
 class PlaylistResponse(BaseModel):
     id: int
     name: str
@@ -94,6 +98,32 @@ async def get_playlists(
     return result
 
 
+@router.patch("/playlists/{playlist_id}", response_model=PlaylistResponse)
+async def update_playlist(
+    playlist_id: int,
+    body: PlaylistUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Rename a playlist."""
+    playlist = db.query(Playlist).filter(
+        Playlist.id == playlist_id,
+        Playlist.user_id == current_user.id,
+    ).first()
+    if not playlist:
+        raise HTTPException(status_code=404, detail="Playlist not found")
+    playlist.name = body.name
+    db.commit()
+    db.refresh(playlist)
+    video_count = db.query(PlaylistVideo).filter(PlaylistVideo.playlist_id == playlist.id).count()
+    return {
+        "id": playlist.id,
+        "name": playlist.name,
+        "created_at": playlist.created_at.isoformat() if playlist.created_at else None,
+        "video_count": video_count,
+    }
+
+
 @router.get("/playlists/{playlist_id}", response_model=PlaylistResponse)
 async def get_playlist(
     playlist_id: int,
@@ -138,7 +168,10 @@ async def get_playlist_videos(
     from database import Sentence
     result = []
     for pv in playlist_videos:
-        video = db.query(Video).filter(Video.id == pv.video_id).first()
+        video = db.query(Video).filter(
+            Video.id == pv.video_id,
+            Video.deleted_at.is_(None),
+        ).first()
         if video:
             sentence_count = db.query(Sentence).filter(Sentence.video_id == video.id).count()
             result.append({
@@ -172,6 +205,7 @@ async def add_video_to_playlist(
     video = db.query(Video).filter(
         Video.id == video_id,
         Video.user_id == current_user.id,
+        Video.deleted_at.is_(None),
     ).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")

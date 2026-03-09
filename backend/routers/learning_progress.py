@@ -126,6 +126,7 @@ async def upsert_progress(
     video = db.query(Video).filter(
         Video.id == body.video_id,
         Video.user_id == current_user.id,
+        Video.deleted_at.is_(None),
     ).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")

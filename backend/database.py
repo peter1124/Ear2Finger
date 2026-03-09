@@ -62,6 +62,7 @@ class Video(Base):
     duration = Column(Float, nullable=True)
     audio_file_path = Column(String, nullable=True)  # Path to downloaded MP3 file
     created_at = Column(DateTime, default=datetime.utcnow)
+    deleted_at = Column(DateTime, nullable=True)  # Soft-delete: learning data preserved for analysis
 
     # Unique per user: (user_id, youtube_url)
     user = relationship("User", back_populates="videos")
@@ -193,6 +194,10 @@ def migrate_db():
                 with engine.begin() as conn:
                     conn.execute(text("ALTER TABLE videos ADD COLUMN user_id INTEGER REFERENCES users(id)"))
                 print("Database migrated: Added user_id to videos")
+            if 'deleted_at' not in column_names:
+                with engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE videos ADD COLUMN deleted_at DATETIME"))
+                print("Database migrated: Added deleted_at to videos (soft-delete)")
 
         # Ensure we have a default user and assign existing rows to it (run after tables exist)
         if 'users' in inspector.get_table_names():

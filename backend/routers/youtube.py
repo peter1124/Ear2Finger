@@ -3,7 +3,7 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, HttpUrl, field_validator
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from database import get_db, Video, Sentence, User
+from database import get_db, Video, Sentence, User, PlaylistVideo
 from auth import get_current_user
 from services.youtube_processor import YouTubeProcessor
 from services.qdrant_client import ingest_sentences_for_video
@@ -99,8 +99,11 @@ async def get_videos(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get all processed videos for the current user"""
-    videos = db.query(Video).filter(Video.user_id == current_user.id).offset(skip).limit(limit).all()
+    """Get all processed videos for the current user (excludes soft-deleted)"""
+    videos = db.query(Video).filter(
+        Video.user_id == current_user.id,
+        Video.deleted_at.is_(None),
+    ).offset(skip).limit(limit).all()
     result = []
     for video in videos:
         sentence_count = db.query(Sentence).filter(Sentence.video_id == video.id).count()
@@ -122,6 +125,7 @@ async def get_video(
     video = db.query(Video).filter(
         Video.id == video_id,
         Video.user_id == current_user.id,
+        Video.deleted_at.is_(None),
     ).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
@@ -146,6 +150,7 @@ async def get_video_sentences(
     video = db.query(Video).filter(
         Video.id == video_id,
         Video.user_id == current_user.id,
+        Video.deleted_at.is_(None),
     ).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
@@ -204,6 +209,7 @@ async def get_video_audio(
     video = db.query(Video).filter(
         Video.id == video_id,
         Video.user_id == current_user.id,
+        Video.deleted_at.is_(None),
     ).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
@@ -225,22 +231,22 @@ async def delete_video(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Delete a video, its sentences, and audio file"""
+    """Soft-delete a video: remove from all playlists and hide from UI.
+    Video, sentences, LearningProgress, and LessonSession are preserved for analysis."""
     video = db.query(Video).filter(
         Video.id == video_id,
         Video.user_id == current_user.id,
+        Video.deleted_at.is_(None),
     ).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
 
-    # Delete audio file if it exists
-    if video.audio_file_path and os.path.exists(video.audio_file_path):
-        try:
-            os.remove(video.audio_file_path)
-        except Exception as e:
-            print(f"Warning: Failed to delete audio file: {str(e)}")
+    # Remove from all playlists (lesson no longer visible)
+    db.query(PlaylistVideo).filter(PlaylistVideo.video_id == video_id).delete()
 
-    db.delete(video)
+    # Soft-delete: keep Video row for LearningProgress/LessonSession FK
+    from datetime import datetime
+    video.deleted_at = datetime.utcnow()
     db.commit()
 
-    return {"message": "Video deleted successfully"}
+    return {"message": "Lesson removed. Learning data preserved for analysis."}
