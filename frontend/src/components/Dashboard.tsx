@@ -113,13 +113,20 @@ export default function Dashboard() {
   const topIncorrect = useMemo<WordStat[]>(() => {
     if (!stats?.top_incorrect_words) return []
     return [...stats.top_incorrect_words]
+      .filter((w) => (w.latest_spell_retry_times ?? 1) > 1)
       .sort((a, b) => (b.latest_spell_retry_times ?? 0) - (a.latest_spell_retry_times ?? 0))
-      .slice(0, 8)
   }, [stats])
 
-  const maxRetryForChart = useMemo(
-    () => Math.max(1, ...topIncorrect.map((w) => w.latest_spell_retry_times ?? 0)),
-    [topIncorrect]
+  const [trickyPage, setTrickyPage] = useState(0)
+  const TRICKY_PAGE_SIZE = 30
+  const trickyPageCount = Math.max(1, Math.ceil((topIncorrect.length || 1) / TRICKY_PAGE_SIZE))
+  const trickyPageWords = useMemo(
+    () =>
+      topIncorrect.slice(
+        trickyPage * TRICKY_PAGE_SIZE,
+        trickyPage * TRICKY_PAGE_SIZE + TRICKY_PAGE_SIZE
+      ),
+    [topIncorrect, trickyPage]
   )
 
   const maxDailySentences = useMemo(
@@ -348,35 +355,68 @@ export default function Dashboard() {
                 </button>
               </section>
 
-              {/* Top incorrect words — horizontal box chart by retry count (median proxy), sorted high → low */}
+              {/* Top tricky words — compact list with retry counts and pagination */}
               <section className="bg-white rounded-xl border border-gray-200 p-4">
-                <h2 className="text-sm font-semibold text-gray-900 mb-1">Top tricky words</h2>
+                <div className="flex items-center justify-between mb-1">
+                  <h2 className="flex-1 text-sm font-semibold text-gray-900 text-center">
+                    Top tricky words
+                  </h2>
+                  {topIncorrect.length > 0 && (
+                    <div className="flex items-center gap-2 text-[11px] text-gray-500">
+                      <button
+                        type="button"
+                        disabled={trickyPage === 0}
+                        onClick={() => setTrickyPage((p) => Math.max(0, p - 1))}
+                        className="px-1.5 py-0.5 rounded border border-gray-200 disabled:opacity-40"
+                      >
+                        ‹
+                      </button>
+                      <span>
+                        Page {trickyPage + 1} / {trickyPageCount}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={trickyPage + 1 >= trickyPageCount}
+                        onClick={() =>
+                          setTrickyPage((p) => Math.min(trickyPageCount - 1, p + 1))
+                        }
+                        className="px-1.5 py-0.5 rounded border border-gray-200 disabled:opacity-40"
+                      >
+                        ›
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <p className="text-xs text-gray-500 mb-4">
-                  Latest retry count per word, sorted high to low. Focus practice here for the biggest gains.
+                  Words where your most recent attempt required more than one try. Higher retry counts
+                  mean they are trickier for you right now.
                 </p>
                 {topIncorrect.length === 0 ? (
                   <p className="text-xs text-gray-500">No word-level data yet.</p>
                 ) : (
-                  <div className="space-y-3">
-                    {topIncorrect.map((w) => {
-                      const retry = w.latest_spell_retry_times ?? 0
-                      const widthPct = Math.max(4, (retry / maxRetryForChart) * 100)
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {trickyPageWords.map((w) => {
+                      const rawRetry = w.latest_spell_retry_times ?? 0
+                      const retry = Math.max(1, Math.round(rawRetry))
+                      const displayWord = (w.word || '').replace(/^[^\w]+|[^\w]+$/g, '')
+                      const intensity =
+                        retry >= 5 ? 'bg-rose-600' : retry >= 3 ? 'bg-rose-500' : 'bg-rose-400'
                       return (
-                        <div key={w.word} className="flex items-center gap-3">
-                          <div className="w-28 text-xs font-mono text-gray-800 truncate shrink-0">
-                            {w.word}
+                        <div
+                          key={w.word}
+                          className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2"
+                        >
+                          <div className="text-xs font-mono text-gray-800 truncate">
+                            {displayWord || w.word}
                           </div>
-                          <div className="flex-1 min-w-0 flex items-center">
-                            <div className="w-full h-6 bg-gray-100 rounded overflow-hidden flex items-center">
-                              <div
-                                className="h-4 rounded-sm bg-rose-400 shrink-0 min-w-[4px]"
-                                style={{ width: `${widthPct}%` }}
-                                title={`${retry.toFixed(1)} tries`}
-                              />
-                            </div>
-                          </div>
-                          <div className="w-14 text-right text-[11px] text-gray-600 tabular-nums shrink-0">
-                            {retry.toFixed(1)} tries
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className={`inline-block w-3 h-3 rounded-sm ${intensity}`}
+                              title={`${retry} tries`}
+                            />
+                            <span className="text-[11px] text-gray-600 tabular-nums">
+                              {retry}×
+                            </span>
                           </div>
                         </div>
                       )

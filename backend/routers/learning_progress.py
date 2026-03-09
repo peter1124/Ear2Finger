@@ -401,11 +401,10 @@ async def get_user_stats(
             )
         )
 
-    # Sort top words, emphasizing the most recently tricky ones.
+    # Sort top words, emphasizing words that were recently retried.
+    # "Tricky" here means the most recent attempt required more than one try.
     tricky_word_stats = [
-        ws
-        for ws in word_stats
-        if ws.incorrect_count > 0 or ws.error_char_count > 0 or ws.hint_count > 0
+        ws for ws in word_stats if ws.latest_spell_retry_times > 1.0
     ]
 
     top_incorrect_words = sorted(
@@ -417,7 +416,7 @@ async def get_user_stats(
             ws.error_char_count,
         ),
         reverse=True,
-    )[:50]
+    )
     top_hint_words = sorted(
         [ws for ws in word_stats if ws.hint_count > 0],
         key=lambda ws: (ws.hint_count, ws.hint_rate),
