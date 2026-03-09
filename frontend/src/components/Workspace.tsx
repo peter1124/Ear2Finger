@@ -321,6 +321,27 @@ export default function Workspace() {
     setLessonMenuOpen(null)
   }
 
+  const handleMoveLessonToPlaylist = async (lesson: Lesson, targetPlaylistId: number) => {
+    if (!selectedPlaylistId || targetPlaylistId === selectedPlaylistId) return
+    try {
+      await api.post(`/api/playlists/${targetPlaylistId}/videos/${lesson.video_id}`)
+      await removeVideoFromPlaylist(selectedPlaylistId, lesson.video_id)
+      await fetchLessons()
+      if (selectedLesson?.video_id === lesson.video_id) {
+        setSelectedLesson(null)
+        setSentences([])
+        setSentencesVideoId(null)
+      }
+      pushNotification('success', 'Lesson moved to playlist.')
+    } catch (err) {
+      const message =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? null
+      pushNotification('error', message || 'Failed to move lesson.')
+    } finally {
+      setLessonMenuOpen(null)
+    }
+  }
+
   const handleDeleteLesson = async (lesson: Lesson) => {
     if (!window.confirm(`Delete "${lesson.title}"? It will be removed from all playlists. Your learning data will be preserved for analysis.`)) return
     try {
@@ -1216,7 +1237,7 @@ export default function Workspace() {
                 </button>
                 {lessonMenuOpen === lesson.id && (
                   <div
-                    className="absolute right-2 top-10 z-10 py-1 bg-white border border-gray-200 rounded-lg shadow-lg text-left min-w-[160px]"
+                    className="absolute right-2 top-10 z-10 py-1 bg-white border border-gray-200 rounded-lg shadow-lg text-left min-w-[180px]"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <button
@@ -1224,7 +1245,7 @@ export default function Workspace() {
                       onClick={() => handleRemoveFromPlaylist(lesson)}
                       className="block w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 text-left"
                     >
-                      Remove from playlist
+                      Remove from this playlist
                     </button>
                     <button
                       type="button"
@@ -1233,6 +1254,28 @@ export default function Workspace() {
                     >
                       Delete lesson
                     </button>
+                    <div className="my-1 border-t border-gray-100" />
+                    <div className="px-3 py-1 text-[11px] font-medium text-gray-500">
+                      Move to playlist
+                    </div>
+                    {playlists.filter((p) => p.id !== selectedPlaylistId).length === 0 ? (
+                      <div className="px-3 py-1 text-xs text-gray-400">
+                        No other playlists
+                      </div>
+                    ) : (
+                      playlists
+                        .filter((p) => p.id !== selectedPlaylistId)
+                        .map((p) => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => handleMoveLessonToPlaylist(lesson, p.id)}
+                            className="block w-full px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 text-left"
+                          >
+                            {p.name}
+                          </button>
+                        ))
+                    )}
                   </div>
                 )}
                 <div className="space-y-1 pr-6">
