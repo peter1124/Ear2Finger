@@ -365,7 +365,6 @@ export default function Workspace() {
       const response = await api.get(`/api/youtube/videos/${videoId}/sentences`)
       setSentences(response.data)
       setSentencesVideoId(videoId)
-      setCurrentSentenceIndex(0)
       return response.data as Array<{
         id: number
         sentence_text: string
@@ -423,10 +422,11 @@ export default function Workspace() {
           setCurrentSentenceIndex(targetIndex)
           setCurrentTime(targetSentence.start_time)
           if (audioRef.current) {
+            // Seek to resume point but stay paused; user must hit Play manually.
+            audioRef.current.pause()
             audioRef.current.currentTime = targetSentence.start_time
-            audioRef.current.play().catch(() => {})
           }
-          setIsPlaying(true)
+          setIsPlaying(false)
           resumed = true
         }
       }
