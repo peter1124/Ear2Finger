@@ -33,6 +33,7 @@ class PlaylistVideoResponse(BaseModel):
     duration: Optional[float]
     sentence_count: int
     audio_file_path: Optional[str]
+    youtube_url: Optional[str]
     order: int
 
     class Config:
@@ -181,6 +182,7 @@ async def get_playlist_videos(
                 'duration': video.duration,
                 'sentence_count': sentence_count,
                 'audio_file_path': video.audio_file_path,
+                'youtube_url': video.youtube_url,
                 'order': pv.order
             })
 

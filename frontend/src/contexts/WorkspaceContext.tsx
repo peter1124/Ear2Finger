@@ -15,6 +15,7 @@ export interface Lesson {
   sentence_count: number
   is_favorite?: boolean
   audio_file_path?: string
+  youtube_url?: string
 }
 
 export interface Sentence {

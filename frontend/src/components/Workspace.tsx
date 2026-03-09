@@ -235,13 +235,22 @@ export default function Workspace() {
 
     try {
       const response = await api.get(`/api/playlists/${selectedPlaylistId}/videos`)
-      const videos = response.data.map((item: { id: number; video_id: number; title?: string; duration?: number; sentence_count?: number; audio_file_path?: string }) => ({
+      const videos = response.data.map((item: {
+        id: number
+        video_id: number
+        title?: string
+        duration?: number
+        sentence_count?: number
+        audio_file_path?: string
+        youtube_url?: string
+      }) => ({
         id: item.id,
         video_id: item.video_id,
         title: item.title || 'Untitled Video',
         duration: item.duration || 0,
         sentence_count: item.sentence_count || 0,
         audio_file_path: item.audio_file_path,
+        youtube_url: item.youtube_url,
         is_favorite: false
       }))
       setLessons(videos)
@@ -357,6 +366,15 @@ export default function Workspace() {
     } catch (err) {
       pushNotification('error', 'Failed to delete lesson.')
     }
+    setLessonMenuOpen(null)
+  }
+
+  const handleOpenYoutubeForLesson = (lesson: Lesson) => {
+    if (!lesson.youtube_url) {
+      pushNotification('error', 'Original YouTube link is not available for this lesson.')
+      return
+    }
+    window.open(lesson.youtube_url, '_blank', 'noopener,noreferrer')
     setLessonMenuOpen(null)
   }
 
@@ -1237,7 +1255,7 @@ export default function Workspace() {
                 </button>
                 {lessonMenuOpen === lesson.id && (
                   <div
-                    className="absolute right-2 top-10 z-10 py-1 bg-white border border-gray-200 rounded-lg shadow-lg text-left min-w-[180px]"
+                    className="absolute right-2 top-10 z-10 py-1 bg-white border border-gray-200 rounded-lg shadow-lg text-left min-w-[200px]"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <button
@@ -1253,6 +1271,13 @@ export default function Workspace() {
                       className="block w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 text-left"
                     >
                       Delete lesson
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenYoutubeForLesson(lesson)}
+                      className="block w-full px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 text-left"
+                    >
+                      Open original YouTube video
                     </button>
                     <div className="my-1 border-t border-gray-100" />
                     <div className="px-3 py-1 text-[11px] font-medium text-gray-500">
