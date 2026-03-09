@@ -1386,6 +1386,10 @@ export default function Workspace() {
                   onClick={() => {
                     if (!selectedLesson || !sentences.length) return
                     setIsPlaying(!isPlaying)
+                    // When the user hits Play, move the cursor to the first word input.
+                    if (wordInputRefs.current[0]) {
+                      wordInputRefs.current[0].focus()
+                    }
                   }}
                   disabled={!selectedLesson || !sentences.length}
                   className="p-2 hover:bg-gray-100 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
