@@ -219,17 +219,13 @@ async def add_video_to_playlist(
     if existing:
         raise HTTPException(status_code=400, detail="Video already in playlist")
 
-    # Get max order for this playlist
-    max_order = db.query(PlaylistVideo).filter(
-        PlaylistVideo.playlist_id == playlist_id
-    ).order_by(PlaylistVideo.order.desc()).first()
-
-    new_order = (max_order.order + 1) if max_order else 0
-
+    # Insert at top: new video gets order 0, shift existing items down
+    for pv in db.query(PlaylistVideo).filter(PlaylistVideo.playlist_id == playlist_id).all():
+        pv.order += 1
     playlist_video = PlaylistVideo(
         playlist_id=playlist_id,
         video_id=video_id,
-        order=new_order
+        order=0,
     )
     db.add(playlist_video)
     db.commit()
