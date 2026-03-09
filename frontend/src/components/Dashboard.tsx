@@ -400,7 +400,15 @@ export default function Dashboard() {
                       const retry = Math.max(1, Math.round(rawRetry))
                       const displayWord = (w.word || '').replace(/^[^\w]+|[^\w]+$/g, '')
                       const intensity =
-                        retry >= 5 ? 'bg-rose-600' : retry >= 3 ? 'bg-rose-500' : 'bg-rose-400'
+                        retry >= 9 ? 'bg-rose-900' :
+                        retry >= 8 ? 'bg-rose-800' :
+                        retry >= 7 ? 'bg-rose-700' :
+                        retry >= 6 ? 'bg-rose-600' :
+                        retry >= 5 ? 'bg-rose-500' :
+                        retry >= 4 ? 'bg-rose-400' :
+                        retry >= 3 ? 'bg-rose-300' :
+                        retry >= 2 ? 'bg-rose-200' :
+                        'bg-rose-100'
                       return (
                         <div
                           key={w.word}
