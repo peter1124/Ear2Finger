@@ -16,7 +16,7 @@ processor = YouTubeProcessor()
 
 class YouTubeUrlRequest(BaseModel):
     url: str
-    
+
     @field_validator('url')
     @classmethod
     def validate_url(cls, v):
@@ -77,7 +77,6 @@ async def process_youtube_video(
         )
 
         # Kick off background ingestion of sentences into Qdrant.
-        # This keeps the main request fast while still indexing new content.
         video_id = result.get("video_id")
         if isinstance(video_id, int):
             background_tasks.add_task(
@@ -126,7 +125,7 @@ async def get_video(
     ).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
-    
+
     sentence_count = db.query(Sentence).filter(Sentence.video_id == video.id).count()
     return {
         **video.__dict__,
@@ -150,11 +149,11 @@ async def get_video_sentences(
     ).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
-    
+
     sentences = db.query(Sentence).filter(
         Sentence.video_id == video_id
     ).order_by(Sentence.sentence_index).offset(skip).limit(limit).all()
-    
+
     return sentences
 
 
@@ -208,10 +207,10 @@ async def get_video_audio(
     ).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
-    
+
     if not video.audio_file_path or not os.path.exists(video.audio_file_path):
         raise HTTPException(status_code=404, detail="Audio file not found")
-    
+
     return _serve_audio_with_range(
         video.audio_file_path,
         request,
@@ -233,15 +232,15 @@ async def delete_video(
     ).first()
     if not video:
         raise HTTPException(status_code=404, detail="Video not found")
-    
+
     # Delete audio file if it exists
     if video.audio_file_path and os.path.exists(video.audio_file_path):
         try:
             os.remove(video.audio_file_path)
         except Exception as e:
             print(f"Warning: Failed to delete audio file: {str(e)}")
-    
+
     db.delete(video)
     db.commit()
-    
+
     return {"message": "Video deleted successfully"}

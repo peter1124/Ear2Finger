@@ -979,7 +979,7 @@ export default function Workspace() {
               onClick={() => setIsImportModalOpen(true)}
               className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-lg transition-colors"
             >
-              Import By URL
+              Import Lesson
             </button>
           </div>
         </aside>

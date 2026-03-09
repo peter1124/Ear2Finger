@@ -400,12 +400,27 @@ async def get_user_stats(
             )
         )
 
-    # Sort top words
+    # Sort top words, emphasizing the most recently tricky ones.
+    tricky_word_stats = [
+        ws
+        for ws in word_stats
+        if ws.incorrect_count > 0 or ws.error_char_count > 0 or ws.hint_count > 0
+    ]
+
     top_incorrect_words = sorted(
-        word_stats, key=lambda ws: (ws.incorrect_count, ws.incorrect_rate), reverse=True
+        tricky_word_stats,
+        key=lambda ws: (
+            ws.latest_spell_retry_times,
+            ws.incorrect_count,
+            ws.incorrect_rate,
+            ws.error_char_count,
+        ),
+        reverse=True,
     )[:50]
     top_hint_words = sorted(
-        word_stats, key=lambda ws: (ws.hint_count, ws.hint_rate), reverse=True
+        [ws for ws in word_stats if ws.hint_count > 0],
+        key=lambda ws: (ws.hint_count, ws.hint_rate),
+        reverse=True,
     )[:50]
 
     # Build daily stats, sorted by date ascending

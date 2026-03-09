@@ -424,7 +424,6 @@ class YouTubeProcessor:
             )
 
         # Merge every 2 consecutive sentences into a longer one:
-        # [s0, s1, s2, s3, ...] -> [s0+s1, s2+s3, ...]. If odd, keep last as-is.
         merged_pairs: List[Dict] = []
         i = 0
         n = len(base_sentences)
@@ -461,7 +460,6 @@ class YouTubeProcessor:
     def process_youtube_video(self, youtube_url: str, db: Session, user_id: int) -> Dict:
         """Process a YouTube video: extract, segment, and store in database"""
         youtube_url = youtube_url.strip().rstrip(',;')
-        # Check if video already exists (by URL only: DB may have UNIQUE on youtube_url)
         existing_video = db.query(Video).filter(Video.youtube_url == youtube_url).first()
         if existing_video:
             if existing_video.user_id is not None and existing_video.user_id != user_id:
