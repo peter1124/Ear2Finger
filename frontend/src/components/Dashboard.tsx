@@ -10,6 +10,8 @@ import {
   type CoachFeedbackResponse,
 } from '../api'
 
+const COACH_FEEDBACK_STORAGE_KEY = 'ear2finger_ai_coach_feedback_v1'
+
 export default function Dashboard() {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
@@ -20,6 +22,14 @@ export default function Dashboard() {
   const [coachLoading, setCoachLoading] = useState(false)
   const [coachError, setCoachError] = useState<string | null>(null)
   const [coachFeedback, setCoachFeedback] = useState<CoachFeedbackResponse | null>(null)
+
+  const normalizeSuggestion = (text: string): string => {
+    return text
+      .trim()
+      .replace(/^\s*[-*]\s+/, '')
+      .replace(/^\s*\d+[).\s-]+/, '')
+      .replace(/\s+/g, ' ')
+  }
 
   useEffect(() => {
     setLoading(true)
@@ -39,6 +49,14 @@ export default function Dashboard() {
     getCoachFeedback()
       .then((data) => {
         setCoachFeedback(data)
+        try {
+          window.localStorage.setItem(
+            COACH_FEEDBACK_STORAGE_KEY,
+            JSON.stringify(data)
+          )
+        } catch {
+          // ignore storage errors
+        }
       })
       .catch((e) => {
         const err = e as { response?: { data?: { detail?: string } } }
@@ -52,10 +70,39 @@ export default function Dashboard() {
 
   const handleOpenCoach = () => {
     setCoachModalOpen(true)
-    if (!coachFeedback && !coachLoading) {
-      loadCoachFeedback()
-    }
+    loadCoachFeedback()
   }
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(COACH_FEEDBACK_STORAGE_KEY)
+      if (!raw) return
+      const parsed = JSON.parse(raw) as CoachFeedbackResponse
+      if (
+        parsed &&
+        typeof parsed.summary === 'string' &&
+        Array.isArray(parsed.suggestions)
+      ) {
+        setCoachFeedback(parsed)
+      }
+    } catch {
+      // ignore parse/storage errors
+    }
+  }, [])
+
+  const coachSuggestions = useMemo(() => {
+    const fallback = [
+      'Try slightly longer sentences to build stamina.',
+      'Review words you have missed 3+ times this week.',
+      'Aim for 5 more sentences today to keep your streak.',
+    ]
+    const source =
+      coachFeedback?.suggestions?.length ? coachFeedback.suggestions : fallback
+    return source
+      .map((s) => normalizeSuggestion(s))
+      .filter(Boolean)
+      .slice(0, 3)
+  }, [coachFeedback])
 
   const recentDaily = useMemo<DailyUserStats[]>(() => {
     if (!stats?.daily) return []
@@ -271,38 +318,31 @@ export default function Dashboard() {
                 <button
                   type="button"
                   onClick={handleOpenCoach}
-                  className="bg-white rounded-xl border border-gray-200 pl-6 pr-4 pt-4 pb-4 w-full hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 flex flex-col min-h-[200px]"
+                  className="bg-white rounded-xl border border-gray-200 px-5 py-4 w-full hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 flex flex-col min-h-[200px]"
                 >
-                  <div className="flex flex-col items-center text-center flex-1">
+                  <div className="flex flex-col items-start text-left flex-1">
                     <h2 className="text-sm font-semibold text-gray-900 mb-1">
                       AI Language Coach
                     </h2>
                     <p className="text-xs text-gray-500 mb-4">
-                      Learning tips from AI
+                      Learning tips from AI, tailored to your recent practice.
                     </p>
-                    <ul className="text-xs text-gray-500 space-y-2 w-full text-left mt-0 pl-24 pt-4">
-                      {(coachFeedback?.suggestions?.length
-                        ? coachFeedback.suggestions
-                        : [
-                            'Try slightly longer sentences to build stamina.',
-                            'Review words you’ve missed 3+ times this week.',
-                            'Aim for 5 more sentences today to keep your streak.',
-                          ]
-                      )
-                        .slice(0, 3)
-                        .map((s, i) => (
-                        <li key={i} className="flex items-start gap-2 line-clamp-1">
-                          <span className="shrink-0 mt-0.5 text-indigo-500" aria-hidden>
+                    <ul className="text-xs text-gray-600 space-y-2 w-full">
+                      {coachSuggestions.map((s, i) => (
+                        <li key={i} className="flex items-start gap-2">
+                          <span className="mt-0.5 text-indigo-500" aria-hidden>
                             <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
                               <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                             </svg>
                           </span>
-                          <span className="min-w-0">{s}</span>
+                          <span className="min-w-0 leading-snug line-clamp-2">
+                            {s}
+                          </span>
                         </li>
                       ))}
                     </ul>
                   </div>
-                  <span className="text-xs text-gray-500 self-end">
+                  <span className="mt-3 text-xs text-gray-400 self-end">
                     Tap for more →
                   </span>
                 </button>
@@ -405,7 +445,7 @@ export default function Dashboard() {
                           <span className="shrink-0 w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-medium">
                             {i + 1}
                           </span>
-                          {s}
+                          {normalizeSuggestion(s)}
                         </li>
                       ))}
                     </ul>
