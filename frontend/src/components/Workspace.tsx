@@ -11,6 +11,7 @@ import {
   deletePlaylist,
   removeVideoFromPlaylist,
   deleteVideo,
+  getLessonSessions,
   type LessonSessionRecord,
   type CoachFeedbackResponse,
   type PracticeRecommendationItem,
@@ -108,6 +109,7 @@ export default function Workspace() {
   const [coachShownForVideoId, setCoachShownForVideoId] = useState<number | null>(null)
   const [lessonMenuOpen, setLessonMenuOpen] = useState<number | null>(null)
   const [playlistMenuOpen, setPlaylistMenuOpen] = useState(false)
+  const [lessonProgress, setLessonProgress] = useState<Record<number, number>>({})
 
   useEffect(() => {
     if (!lessonMenuOpen) return
@@ -122,6 +124,30 @@ export default function Workspace() {
     window.addEventListener('click', onClose)
     return () => window.removeEventListener('click', onClose)
   }, [playlistMenuOpen])
+
+  // Preload most recent lesson history per video to drive sidebar progress bars.
+  useEffect(() => {
+    if (!lessons.length) return
+    const missingIds = lessons
+      .map((l) => l.video_id)
+      .filter((id) => lessonProgress[id] === undefined)
+    if (!missingIds.length) return
+
+    ;(async () => {
+      await Promise.all(
+        missingIds.map(async (videoId) => {
+          try {
+            const sessions = await getLessonSessions(videoId)
+            const latest = sessions[0] as LessonSessionRecord | undefined
+            const sentences = latest?.sentences_practiced ?? 0
+            setLessonProgress((prev) => (prev[videoId] === undefined ? { ...prev, [videoId]: sentences } : prev))
+          } catch {
+            // ignore per-video errors
+          }
+        })
+      )
+    })()
+  }, [lessons, lessonProgress])
 
   // Load playlists and lessons on component mount
   useEffect(() => {
@@ -1105,16 +1131,23 @@ export default function Workspace() {
           </div>
 
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
-            {lessons.map((lesson) => (
-              <div
-                key={lesson.id}
-                className={`relative p-4 rounded-lg cursor-pointer transition-colors group ${
-                  selectedLesson?.id === lesson.id
-                    ? 'bg-gray-900 text-white'
-                    : 'bg-white hover:bg-gray-100'
-                }`}
-                onClick={() => handleLessonSelect(lesson)}
-              >
+            {lessons.map((lesson) => {
+              const practicedSentences = lessonProgress[lesson.video_id] ?? 0
+              const totalSentences = lesson.sentence_count || 0
+              const progressFraction =
+                totalSentences > 0 ? Math.max(0, Math.min(1, practicedSentences / totalSentences)) : 0
+              const progressPercent = progressFraction * 100
+
+              return (
+                <div
+                  key={lesson.id}
+                  className={`relative p-4 rounded-lg cursor-pointer transition-colors group ${
+                    selectedLesson?.id === lesson.id
+                      ? 'bg-gray-900 text-white'
+                      : 'bg-white hover:bg-gray-100'
+                  }`}
+                  onClick={() => handleLessonSelect(lesson)}
+                >
                 <button
                   type="button"
                   onClick={(e) => {
@@ -1151,21 +1184,44 @@ export default function Workspace() {
                     </button>
                   </div>
                 )}
-                <div className="flex items-start justify-between mb-1 pr-6">
-                  <h3 className={`font-small ${selectedLesson?.id === lesson.id ? 'text-white' : 'text-gray-900'}`}>
-                    {lesson.title}
-                  </h3>
-                  {lesson.is_favorite && (
-                    <svg className="w-5 h-5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
-                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                    </svg>
-                  )}
-                </div>
-                <div className={`text-xs ${selectedLesson?.id === lesson.id ? 'text-gray-300' : 'text-gray-600'}`}>
-                  Duration: {formatDuration(lesson.duration)} Sentences: {lesson.sentence_count}
+                <div className="space-y-1 pr-6">
+                  <div className="flex items-start justify-between gap-2">
+                    <h3
+                      className={`text-sm font-medium leading-snug line-clamp-2 text-left ${
+                        selectedLesson?.id === lesson.id ? 'text-white' : 'text-gray-900'
+                      }`}
+                    >
+                      {lesson.title}
+                    </h3>
+                    {lesson.is_favorite && (
+                      <svg className="w-5 h-5 text-yellow-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                      </svg>
+                    )}
+                  </div>
+                  <div
+                    className={`flex justify-between text-[11px] ${
+                      selectedLesson?.id === lesson.id ? 'text-gray-300' : 'text-gray-600'
+                    }`}
+                  >
+                    <span className="truncate">Duration: {formatDuration(lesson.duration)}</span>
+                    <span className="ml-2 whitespace-nowrap">
+                      Sentences: {lesson.sentence_count}
+                    </span>
+                  </div>
+                  <div className="mt-1 h-1 w-full rounded-full bg-gray-200 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${
+                        progressFraction >= 1
+                          ? 'bg-emerald-500'
+                          : 'bg-indigo-500'
+                      }`}
+                      style={{ width: `${progressPercent || 0}%` }}
+                    />
+                  </div>
                 </div>
               </div>
-            ))}
+            )})}
           </div>
 
           <div className="p-4 border-t border-gray-200">
