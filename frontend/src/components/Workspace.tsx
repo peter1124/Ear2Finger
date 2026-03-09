@@ -80,6 +80,7 @@ export default function Workspace() {
   const sentenceIndexFromPlaybackRef = useRef(false)
   const userInitiatedSentenceChangeRef = useRef(false)
   const programmaticSeekRef = useRef(false)
+  const skipNextSentenceResetRef = useRef(false)
   const wordInputRefs = useRef<(HTMLInputElement | null)[]>([])
   const prevSentencesIdentityRef = useRef<string | null>(null)
   const prevSentenceKeyRef = useRef<number | null>(null)
@@ -365,12 +366,20 @@ export default function Workspace() {
       setSentences(response.data)
       setSentencesVideoId(videoId)
       setCurrentSentenceIndex(0)
+      return response.data as Array<{
+        id: number
+        sentence_text: string
+        start_time: number
+        end_time: number
+        sentence_index: number
+      }>
     } catch (err) {
       console.error('Error fetching sentences:', err)
+      return []
     }
   }
 
-  const handleLessonSelect = (lesson: Lesson) => {
+  const handleLessonSelect = async (lesson: Lesson) => {
     setLessonMenuOpen(null)
     if (
       selectedLesson &&
@@ -389,7 +398,45 @@ export default function Workspace() {
     }
     sessionStartedAtRef.current = getLocalDateTimeString()
     setSelectedLesson(lesson)
-    fetchSentences(lesson.video_id)
+    const nextSentences = await fetchSentences(lesson.video_id)
+
+    // Try auto-resume from latest session history for this lesson.
+    let resumed = false
+    try {
+      const sessions = await getLessonSessions(lesson.video_id)
+      const latest = sessions[0]
+      if (latest && latest.sentences_practiced > 0 && nextSentences.length > 0) {
+        const targetIndex = Math.max(
+          0,
+          Math.min(nextSentences.length - 1, latest.sentences_practiced - 1)
+        )
+        const targetSentence = nextSentences[targetIndex]
+        if (targetSentence) {
+          // Avoid the sentence-list reset effect overriding this resume target.
+          skipNextSentenceResetRef.current = true
+          setVideoSessionScores({
+            correctChars: latest.correct_chars,
+            incorrectChars: latest.incorrect_chars,
+            hintCount: latest.hint_count,
+          })
+          userInitiatedSentenceChangeRef.current = true
+          setCurrentSentenceIndex(targetIndex)
+          setCurrentTime(targetSentence.start_time)
+          if (audioRef.current) {
+            audioRef.current.currentTime = targetSentence.start_time
+            audioRef.current.play().catch(() => {})
+          }
+          setIsPlaying(true)
+          resumed = true
+        }
+      }
+    } catch {
+      // keep default behavior if history fetch fails
+    }
+
+    if (resumed) return
+
+    // No resumable history: start from beginning.
     setCurrentTime(0)
     setCurrentSentenceIndex(0)
     setIsPlaying(false)
@@ -586,6 +633,10 @@ export default function Workspace() {
     if (prevSentencesIdentityRef.current === identity) return
     const isNewSentences = prevSentencesIdentityRef.current !== null
     prevSentencesIdentityRef.current = identity
+    if (skipNextSentenceResetRef.current) {
+      skipNextSentenceResetRef.current = false
+      return
+    }
     if (isNewSentences && !isPlaying) {
       setCurrentSentenceIndex(0)
       repeatCountRef.current = 0
