@@ -435,6 +435,18 @@ export default function Workspace() {
       }).catch(() => {})
     }
     sessionStartedAtRef.current = getLocalDateTimeString()
+
+    // Before switching lessons, hard-reset audio so Play cannot reuse the previous lesson's audio.
+    if (audioRef.current) {
+      audioRef.current.pause()
+      audioRef.current.currentTime = 0
+    }
+    if (audioBlobUrlRef.current) {
+      URL.revokeObjectURL(audioBlobUrlRef.current)
+      audioBlobUrlRef.current = null
+    }
+    setAudioBlobUrl(null)
+
     setSelectedLesson(lesson)
     const nextSentences = await fetchSentences(lesson.video_id)
 
@@ -535,16 +547,6 @@ export default function Workspace() {
       if (!hasReachedEnd) return
 
       // When repeat is ∞, only advance when the user has spelled the current sentence fully correctly
-      const words = currentSentence.sentence_text.split(/\s+/).filter(Boolean)
-      const norm = (w: string) => {
-        let s = w
-        if (ignoreCase) s = s.toLowerCase()
-        if (ignorePunctuation) s = s.replace(/[^\w\s]/g, '')
-        return s
-      }
-      const isCurrentSentenceFullyCorrect =
-        words.length === wordInputs.length &&
-        words.every((w, i) => norm(w) === norm(wordInputs[i] ?? ''))
       const shouldRepeat =
         repeatCount === '∞'
           ? !isCurrentSentenceFullyCorrect
@@ -779,11 +781,25 @@ export default function Workspace() {
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
 
-  const currentSentence = sentences[currentSentenceIndex] || null
+  const normalizeWord = (w: string) => {
+    let s = w
+    if (ignoreCase) s = s.toLowerCase()
+    if (ignorePunctuation) s = s.replace(/[^\w\s]/g, '')
+    return s
+  }
+
+  const isPunctuationOnlyToken = (token: string) => {
+    const trimmed = token.trim()
+    if (!trimmed) return false
+    // If there is at least one alphanumeric character, we treat it as a real word.
+    return !/[0-9A-Za-z]/.test(trimmed)
+  }
+
+  const currentSentence = selectedLesson ? (sentences[currentSentenceIndex] || null) : null
   const totalDuration = selectedLesson?.duration || 0
   const sentenceCount = sentences.length
 
-  // Check if current sentence is fully correct
+  // Check if current sentence is fully correct (ignores punctuation-only tokens)
   const isCurrentSentenceFullyCorrect = currentSentence && (() => {
     const words = currentSentence.sentence_text.split(/\s+/).filter(Boolean)
     const norm = (w: string) => {
@@ -792,8 +808,13 @@ export default function Workspace() {
       if (ignorePunctuation) s = s.replace(/[^\w\s]/g, '')
       return s
     }
-    return words.length === wordInputs.length &&
-      words.every((w, i) => norm(w) === norm(wordInputs[i] ?? ''))
+    const relevant = words
+      .map((w, i) => ({ w, i }))
+      .filter(({ w }) => !isPunctuationOnlyToken(w))
+
+    if (relevant.length === 0) return true
+
+    return relevant.every(({ w, i }) => norm(w) === norm(wordInputs[i] ?? ''))
   })()
 
   const hasCompletedOneSentence =
@@ -915,27 +936,28 @@ export default function Workspace() {
     prevSentenceKeyRef.current = key
   }, [currentSentenceIndex, currentSentence?.id])
 
-  // When switching to a new sentence, focus the first word input after the new inputs are in the DOM.
+  // When switching to a new sentence, focus the first input-able word (skip punctuation-only tokens).
   useEffect(() => {
     if (!currentSentence) return
     const t1 = setTimeout(() => {
-      wordInputRefs.current[0]?.focus()
+      const words = currentSentence.sentence_text.split(/\s+/).filter(Boolean)
+      const firstInputIndex = words.findIndex((w) => !isPunctuationOnlyToken(w))
+      if (firstInputIndex >= 0) {
+        wordInputRefs.current[firstInputIndex]?.focus()
+      }
     }, 0)
     const t2 = setTimeout(() => {
-      wordInputRefs.current[0]?.focus()
+      const words = currentSentence.sentence_text.split(/\s+/).filter(Boolean)
+      const firstInputIndex = words.findIndex((w) => !isPunctuationOnlyToken(w))
+      if (firstInputIndex >= 0) {
+        wordInputRefs.current[firstInputIndex]?.focus()
+      }
     }, 100)
     return () => {
       clearTimeout(t1)
       clearTimeout(t2)
     }
   }, [currentSentenceIndex, currentSentence?.id])
-
-  const normalizeWord = (w: string) => {
-    let s = w
-    if (ignoreCase) s = s.toLowerCase()
-    if (ignorePunctuation) s = s.replace(/[^\w\s]/g, '')
-    return s
-  }
 
   const handleResumeLessonSession = (session: LessonSessionRecord) => {
     if (!selectedLesson || !sentences.length) return
@@ -1411,9 +1433,13 @@ export default function Workspace() {
                   onClick={() => {
                     if (!selectedLesson || !sentences.length) return
                     setIsPlaying(!isPlaying)
-                    // When the user hits Play, move the cursor to the first word input.
-                    if (wordInputRefs.current[0]) {
-                      wordInputRefs.current[0].focus()
+                    // When the user hits Play, move the cursor to the first input-able word (skip punctuation-only tokens).
+                    if (currentSentence) {
+                      const words = currentSentence.sentence_text.split(/\s+/).filter(Boolean)
+                      const firstInputIndex = words.findIndex((w) => !isPunctuationOnlyToken(w))
+                      if (firstInputIndex >= 0) {
+                        wordInputRefs.current[firstInputIndex]?.focus()
+                      }
                     }
                   }}
                   disabled={!selectedLesson || !sentences.length}
@@ -1651,6 +1677,19 @@ export default function Workspace() {
                 <div className="max-w-4xl mx-auto">
                   <div className="text-xl leading-relaxed text-gray-900 flex flex-wrap items-baseline gap-x-2 gap-y-3">
                     {words.map((word, idx) => {
+                      if (isPunctuationOnlyToken(word)) {
+                        return (
+                          <span key={idx} className="inline-flex items-baseline">
+                            <span
+                              className="text-gray-500"
+                              style={{ fontSize: '1.8em' }}
+                            >
+                              {word}
+                            </span>
+                            {idx < words.length - 1 ? '\u00A0' : null}
+                          </span>
+                        )
+                      }
                       const isHintShown = wordHintIndex === idx
                       const value = isHintShown ? word : (wordInputs[idx] ?? '')
                       const underlineClass = getWordUnderlineClass(word, value)
@@ -1710,7 +1749,14 @@ export default function Workspace() {
                               }
                               if (e.key === ' ') {
                                 e.preventDefault()
-                                wordInputRefs.current[idx + 1]?.focus()
+                                // Move to the next input-able word (skip punctuation-only tokens)
+                                let nextIndex = idx + 1
+                                while (nextIndex < words.length && isPunctuationOnlyToken(words[nextIndex])) {
+                                  nextIndex++
+                                }
+                                if (nextIndex < words.length) {
+                                  wordInputRefs.current[nextIndex]?.focus()
+                                }
                                 return
                               }
                               if (e.key === 'Tab') {

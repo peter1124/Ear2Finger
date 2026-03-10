@@ -23,6 +23,7 @@ class YouTubeProcessor:
         ydl_opts_info = {
             'quiet': True,
             'no_warnings': True,
+            'noplaylist': True,
         }
 
         try:
@@ -46,6 +47,7 @@ class YouTubeProcessor:
                         # Command: yt-dlp --write-subs --sub-lang en --sub-format srt --convert-subs srt --skip-download <URL>
                         cmd_manual = [
                             'yt-dlp',
+                            '--no-playlist',
                             '--write-subs',
                             '--sub-lang', 'en',
                             '--sub-format', 'srt',
@@ -82,6 +84,7 @@ class YouTubeProcessor:
                         if not subtitles_data:
                             cmd_auto = [
                                 'yt-dlp',
+                                '--no-playlist',
                                 '--write-auto-subs',
                                 '--sub-lang', 'en',
                                 '--sub-format', 'srt',
@@ -133,6 +136,7 @@ class YouTubeProcessor:
                         temp_output = os.path.join(self.audio_dir, f'{video_id}_temp.%(ext)s')
                         cmd = [
                             'yt-dlp',
+                            '--no-playlist',
                             '-x',  # Extract audio only
                             '--audio-format', 'mp3',
                             '--output', temp_output,
@@ -217,6 +221,19 @@ class YouTubeProcessor:
                                 continue
 
         return subtitles_data
+
+    @staticmethod
+    def _is_punctuation_only(text: str) -> bool:
+        """
+        Return True if the given text contains no alphanumeric characters
+        (i.e. it's only punctuation/whitespace like '>>', '...', '♪♪', etc.).
+        """
+        if not text:
+            return False
+        stripped = text.strip()
+        if not stripped:
+            return False
+        return not any(ch.isalnum() for ch in stripped)
 
     def parse_subtitles(self, subtitle_content: str) -> List[Dict]:
         """Parse subtitle content (SRT or VTT format) into timestamped segments"""
@@ -361,9 +378,24 @@ class YouTubeProcessor:
            merge it into the previous segment until the monotonic property holds.
         """
 
-        # Ensure segments are processed in chronological order
+        # Filter out empty and punctuation-only segments, then ensure
+        # segments are processed in chronological order.
+        cleaned_segments: List[Dict] = []
+        for s in segments:
+            text = s.get("text", "")
+            if not text:
+                continue
+            stripped = text.strip()
+            if not stripped:
+                continue
+            if self._is_punctuation_only(stripped):
+                continue
+            cleaned = dict(s)
+            cleaned["text"] = stripped
+            cleaned_segments.append(cleaned)
+
         sorted_segments = sorted(
-            (s for s in segments if s.get("text", "").strip()),
+            cleaned_segments,
             key=lambda s: s["start_time"],
         )
 
@@ -464,6 +496,14 @@ class YouTubeProcessor:
         if existing_video:
             if existing_video.user_id is not None and existing_video.user_id != user_id:
                 raise ValueError("This video URL was already imported by another user.")
+
+            # If this video was soft-deleted for this user, restore it instead of
+            # treating it as missing. This allows re-importing a previously deleted
+            # lesson without causing downstream "Video not found" errors.
+            if getattr(existing_video, "deleted_at", None) is not None:
+                existing_video.deleted_at = None
+                db.commit()
+
             if existing_video.user_id != user_id:
                 existing_video.user_id = user_id
                 db.commit()
