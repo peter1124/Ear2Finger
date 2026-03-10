@@ -485,7 +485,9 @@ export default function Workspace() {
       // keep default behavior if history fetch fails
     }
 
-    if (resumed) return
+    if (resumed) {
+      return
+    }
 
     // No resumable history: start from beginning.
     setCurrentTime(0)
@@ -1882,7 +1884,7 @@ export default function Workspace() {
 
       {/* AI Coach side panel */}
       {coachPanelOpen && (
-        <div className="fixed right-4 bottom-24 z-50 w-80 max-h-[60vh] rounded-lg border border-gray-200 bg-white shadow-xl flex flex-col">
+        <div className="fixed right-4 bottom-24 z-50 w-[26rem] max-h-[60vh] rounded-lg border border-gray-200 bg-white shadow-xl flex flex-col text-left">
           <div className="px-3 py-2 border-b border-gray-200 flex items-center justify-between">
             <div>
               <h2 className="text-sm font-semibold text-gray-900">Session recap by AI coach</h2>
@@ -1903,10 +1905,10 @@ export default function Workspace() {
               </svg>
             </button>
           </div>
-          <div className="px-3 py-2 text-xs text-gray-600 border-b border-gray-100">
+          <div className="px-3 py-2 text-xs text-gray-600 border-b border-gray-100 text-left">
             AI feedback based on your current practice stats for this video.
           </div>
-          <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3 text-sm">
+          <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3 text-sm text-left">
             {coachError && (
               <div className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
                 {coachError}{' '}

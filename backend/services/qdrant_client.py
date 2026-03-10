@@ -194,6 +194,18 @@ def search_sentences_by_queries(
     ensure_collections()
     client = get_qdrant_client()
 
+    # Prefer the high-level `.search` API when available. If this client build
+    # does not support `.search`, we currently skip sentence recommendations
+    # rather than attempting to emulate search with matrix helpers whose
+    # contracts differ across versions.
+    has_search = hasattr(client, "search")
+    if not has_search:
+        logger.warning(
+            "qdrant: QdrantClient.search is not available; "
+            "skipping sentence-based practice recommendations."
+        )
+        return []
+
     hits: List[Dict[str, Any]] = []
 
     for query, vector in zip(clean_queries, vectors):
@@ -214,6 +226,21 @@ def search_sentences_by_queries(
                 query_filter=query_filter,
                 limit=per_query_limit,
             )
+
+            for r in results:
+                payload = r.payload or {}
+                hits.append(
+                    {
+                        "score": float(getattr(r, "score", 0.0) or 0.0),
+                        "query": query,
+                        "sentence_id": payload.get("sentence_id"),
+                        "video_id": payload.get("video_id"),
+                        "sentence_text": payload.get("sentence_text") or "",
+                        "title": payload.get("title"),
+                        "start_time": float(payload.get("start_time") or 0.0),
+                        "end_time": float(payload.get("end_time") or 0.0),
+                    }
+                )
         except Exception as exc:  # pragma: no cover - defensive
             logger.exception(
                 "qdrant: search failed for user_id=%s video_id=%s query=%r: %s",
@@ -223,21 +250,6 @@ def search_sentences_by_queries(
                 exc,
             )
             continue
-
-        for r in results:
-            payload = r.payload or {}
-            hits.append(
-                {
-                    "score": float(getattr(r, "score", 0.0) or 0.0),
-                    "query": query,
-                    "sentence_id": payload.get("sentence_id"),
-                    "video_id": payload.get("video_id"),
-                    "sentence_text": payload.get("sentence_text") or "",
-                    "title": payload.get("title"),
-                    "start_time": float(payload.get("start_time") or 0.0),
-                    "end_time": float(payload.get("end_time") or 0.0),
-                }
-            )
 
     return hits
 

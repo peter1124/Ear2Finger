@@ -294,6 +294,7 @@ export interface PracticeRecommendationItem {
   start_time: number
   end_time: number
   video_title?: string | null
+   youtube_url?: string | null
   score: number
   reasons: string[]
 }

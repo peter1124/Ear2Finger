@@ -4,10 +4,12 @@ import { useAuth } from '../contexts/AuthContext'
 import {
   getUserStats,
   getCoachFeedback,
+  getCoachRecommendations,
   type DailyUserStats,
   type UserStats,
   type WordStat,
   type CoachFeedbackResponse,
+  type PracticeRecommendationItem,
 } from '../api'
 
 const COACH_FEEDBACK_STORAGE_KEY = 'ear2finger_ai_coach_feedback_v1'
@@ -22,6 +24,8 @@ export default function Dashboard() {
   const [coachLoading, setCoachLoading] = useState(false)
   const [coachError, setCoachError] = useState<string | null>(null)
   const [coachFeedback, setCoachFeedback] = useState<CoachFeedbackResponse | null>(null)
+  const [coachPracticeRecs, setCoachPracticeRecs] = useState<PracticeRecommendationItem[] | null>(null)
+  const [coachPracticeError, setCoachPracticeError] = useState<string | null>(null)
 
   const normalizeSuggestion = (text: string): string => {
     return text
@@ -46,6 +50,8 @@ export default function Dashboard() {
   const loadCoachFeedback = () => {
     setCoachLoading(true)
     setCoachError(null)
+    setCoachPracticeError(null)
+    setCoachPracticeRecs(null)
     getCoachFeedback()
       .then((data) => {
         setCoachFeedback(data)
@@ -68,9 +74,26 @@ export default function Dashboard() {
       .finally(() => setCoachLoading(false))
   }
 
+  const loadCoachRecommendations = () => {
+    setCoachPracticeError(null)
+    setCoachPracticeRecs(null)
+    getCoachRecommendations()
+      .then((data) => {
+        setCoachPracticeRecs(data.recommendations ?? [])
+      })
+      .catch((e) => {
+        const err = e as { response?: { data?: { detail?: string } } }
+        setCoachPracticeError(
+          err.response?.data?.detail ||
+            'AI recommendations are unavailable. Check your AI API key in Settings.'
+        )
+      })
+  }
+
   const handleOpenCoach = () => {
     setCoachModalOpen(true)
     loadCoachFeedback()
+    loadCoachRecommendations()
   }
 
   useEffect(() => {
@@ -101,7 +124,6 @@ export default function Dashboard() {
     return source
       .map((s) => normalizeSuggestion(s))
       .filter(Boolean)
-      .slice(0, 3)
   }, [coachFeedback])
 
   const recentDaily = useMemo<DailyUserStats[]>(() => {
@@ -131,6 +153,21 @@ export default function Dashboard() {
 
   const maxDailySentences = useMemo(
     () => Math.max(1, ...recentDaily.map((d) => d.total_sentences_practiced || 0)),
+    [recentDaily]
+  )
+
+  const maxDailyErrorHintPct = useMemo(
+    () =>
+      Math.max(
+        1,
+        ...recentDaily.map((d) => {
+          const words = d.total_words_seen || 0
+          if (!words) return 0
+          const incorrectPct = ((d.total_incorrect_words || 0) / words) * 100
+          const hintPct = ((d.total_hints_used || 0) / words) * 100
+          return Math.max(incorrectPct, hintPct)
+        })
+      ),
     [recentDaily]
   )
 
@@ -286,7 +323,7 @@ export default function Dashboard() {
               <section className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div className="bg-white rounded-xl border border-gray-200 p-4">
                   <h2 className="text-sm font-semibold text-gray-900 mb-1">
-                    Daily sentences practiced
+                    Daily stats
                   </h2>
                   <p className="text-xs text-gray-500 mb-4">
                     Last {recentDaily.length} days
@@ -294,39 +331,100 @@ export default function Dashboard() {
                   {recentDaily.length === 0 ? (
                     <p className="text-xs text-gray-500">No practice data yet.</p>
                   ) : (
-                    <div className="h-40 flex items-end gap-1">
-                      {recentDaily.map((d) => {
-                        const sentences = d.total_sentences_practiced || 0
-                        const barHeight = (sentences / maxDailySentences) * 100
-                        return (
-                          <div
-                            key={d.date}
-                            className="flex-1 flex flex-col items-center justify-end gap-1"
-                          >
-                            <div className="w-full h-24 flex items-end">
-                              <div
-                                className="w-full bg-indigo-100 rounded-t-md"
-                                style={{ height: `${barHeight || 2}%` }}
-                              />
-                            </div>
-                            <span className="mt-1.5 text-[10px] text-gray-500 text-center leading-tight">
-                              {d.date.slice(5)}
-                              <span className="block text-gray-800 font-medium mt-0.5">
-                                {sentences}
+                    <>
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-xs font-semibold text-gray-900">
+                          Sentences practiced per day
+                        </h3>
+                      </div>
+                      <div className="h-40 flex items-end gap-1">
+                        {recentDaily.map((d) => {
+                          const sentences = d.total_sentences_practiced || 0
+                          const barHeight = (sentences / maxDailySentences) * 100
+                          return (
+                            <div
+                              key={d.date}
+                              className="flex-1 flex flex-col items-center justify-end gap-1"
+                            >
+                              <div className="w-full h-24 flex items-end">
+                                <div
+                                  className="w-full bg-indigo-100 rounded-t-md"
+                                  style={{ height: `${barHeight || 2}%` }}
+                                />
+                              </div>
+                              <span className="mt-1.5 text-[10px] text-gray-500 text-center leading-tight">
+                                {d.date.slice(5)}
+                                <span className="block text-gray-800 font-medium mt-0.5">
+                                  {sentences}
+                                </span>
                               </span>
+                            </div>
+                          )
+                        })}
+                      </div>
+
+                      <div className="mt-5">
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="text-xs font-semibold text-gray-900">
+                            Daily retries % and hints %
+                          </h3>
+                          <div className="flex items-center gap-3 text-[10px] text-gray-500">
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-rose-400" />
+                              Retries %
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-amber-400" />
+                              Hints %
                             </span>
                           </div>
-                        )
-                      })}
-                    </div>
+                        </div>
+                        <div className="h-32 flex items-end gap-1">
+                          {recentDaily.map((d) => {
+                            const words = d.total_words_seen || 0
+                            const incorrectPct = words
+                              ? ((d.total_incorrect_words || 0) / words) * 100
+                              : 0
+                            const hintPct = words
+                              ? ((d.total_hints_used || 0) / words) * 100
+                              : 0
+                            const incorrectHeight =
+                              (incorrectPct / (maxDailyErrorHintPct || 1)) * 100
+                            const hintHeight =
+                              (hintPct / (maxDailyErrorHintPct || 1)) * 100
+                            return (
+                              <div
+                                key={d.date + '-pct'}
+                                className="flex-1 flex flex-col items-center justify-end gap-1"
+                              >
+                                <div className="w-full h-24 flex items-end gap-[2px]">
+                                  <div
+                                    className="flex-1 bg-rose-200 rounded-t-sm"
+                                    style={{ height: `${incorrectHeight || 0}%` }}
+                                    title={`Retries: ${incorrectPct.toFixed(1)}%`}
+                                  />
+                                  <div
+                                    className="flex-1 bg-amber-200 rounded-t-sm"
+                                    style={{ height: `${hintHeight || 0}%` }}
+                                    title={`Hints: ${hintPct.toFixed(1)}%`}
+                                  />
+                                </div>
+                                <span className="mt-1 text-[9px] text-gray-500 text-center leading-tight">
+                                  {d.date.slice(5)}
+                                  <span className="block text-[9px] text-gray-600">
+                                    {incorrectPct.toFixed(1)}% / {hintPct.toFixed(1)}%
+                                  </span>
+                                </span>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    </>
                   )}
                 </div>
 
-                <button
-                  type="button"
-                  onClick={handleOpenCoach}
-                  className="bg-white rounded-xl border border-gray-200 px-5 py-4 w-full hover:border-gray-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 flex flex-col min-h-[200px]"
-                >
+                <div className="bg-white rounded-xl border border-gray-200 px-5 py-4 w-full flex flex-col min-h-[260px]">
                   <div className="flex flex-col items-start text-left flex-1">
                     <h2 className="text-sm font-semibold text-gray-900 mb-1">
                       AI Language Coach
@@ -342,17 +440,65 @@ export default function Dashboard() {
                               <path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                             </svg>
                           </span>
-                          <span className="min-w-0 leading-snug line-clamp-2">
+                          <span className="min-w-0 leading-snug">
                             {s}
                           </span>
                         </li>
                       ))}
                     </ul>
+
+                    {/* Recommended channels preview */}
+                    <div className="mt-4 pt-3 border-t border-gray-100 w-full">
+                      <h3 className="text-[11px] font-semibold text-gray-900 mb-1">
+                        Recommended YouTube channels
+                      </h3>
+                      <p className="text-[11px] text-gray-500 mb-2">
+                        Clear English audio and good subtitles, great for importing into Ear2Finger.
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[
+                          {
+                            name: 'Kurzgesagt – In a Nutshell',
+                            href: 'https://www.youtube.com/kurzgesagt',
+                          },
+                          { name: 'Veritasium', href: 'https://www.youtube.com/veritasium' },
+                          { name: 'Pick Up Limes', href: 'https://www.youtube.com/pickuplimes' },
+                          { name: 'BBC Learning English', href: 'https://www.youtube.com/bbclearningenglish' },
+                          { name: 'Rachel\'s English', href: 'https://www.youtube.com/rachelsenglish' },
+                          { name: 'TED-Ed', href: 'https://www.youtube.com/@TEDEd' },
+                          { name: 'TED', href: 'https://www.youtube.com/@TED' },
+                        ].map((ch) => (
+                          <a
+                            key={ch.href}
+                            href={ch.href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 rounded-full border border-red-500/20 bg-red-50 px-2.5 py-0.5 text-[10px] font-medium text-red-700 hover:bg-red-100"
+                          >
+                            <svg
+                              className="w-3 h-3"
+                              viewBox="0 0 24 24"
+                              aria-hidden="true"
+                            >
+                              <path
+                                fill="currentColor"
+                                d="M21.8 8.001a3.002 3.002 0 0 0-2.113-2.123C17.938 5.25 12 5.25 12 5.25s-5.938 0-7.687.628A3.002 3.002 0 0 0 2.2 8.001C1.575 9.757 1.575 12.75 1.575 12.75s0 2.993.625 4.749a3.002 3.002 0 0 0 2.113 2.123C6.062 20.25 12 20.25 12 20.25s5.938 0 7.687-.628a3.002 3.002 0 0 0 2.113-2.123c.625-1.756.625-4.749.625-4.749s0-2.993-.625-4.749ZM10.25 15.5v-5l4.5 2.5-4.5 2.5Z"
+                              />
+                            </svg>
+                            <span className="truncate max-w-[7rem]">{ch.name}</span>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                  <span className="mt-3 text-xs text-gray-400 self-end">
+                  <button
+                    type="button"
+                    onClick={handleOpenCoach}
+                    className="mt-3 inline-flex items-center text-xs text-indigo-600 hover:text-indigo-700 self-end focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 rounded"
+                  >
                     Tap for more →
-                  </span>
-                </button>
+                  </button>
+                </div>
               </section>
 
               {/* Top tricky words — compact list with retry counts and pagination */}
@@ -447,7 +593,7 @@ export default function Dashboard() {
           aria-labelledby="coach-modal-title"
         >
           <div
-            className="bg-white rounded-xl shadow-xl max-w-md w-full max-h-[85vh] overflow-hidden flex flex-col"
+            className="bg-white rounded-xl shadow-xl w-2/3 max-w-3xl max-h-[85vh] overflow-hidden flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-4 border-b border-gray-200 flex items-center justify-between">
@@ -465,7 +611,7 @@ export default function Dashboard() {
                 </svg>
               </button>
             </div>
-            <div className="p-4 overflow-y-auto">
+            <div className="p-4 overflow-y-auto text-left">
               {coachError && (
                 <div className="mb-3 text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
                   {coachError}{' '}
@@ -493,12 +639,92 @@ export default function Dashboard() {
                           <span className="shrink-0 w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-medium">
                             {i + 1}
                           </span>
-                          {normalizeSuggestion(s)}
+                          <span>{normalizeSuggestion(s)}</span>
                         </li>
                       ))}
                     </ul>
                   )}
+
+                  {/* Static learning resources recommendations */}
+                  <div className="mt-6 pt-4 border-t border-gray-100">
+                    <h3 className="text-sm font-semibold text-gray-900 mb-2">
+                      Recommended YouTube channels
+                    </h3>
+                    <p className="text-xs text-gray-500 mb-4">
+                      These channels offer clear English audio and high‑quality subtitles, making them ideal for listening, dictation, and Ear2Finger practice.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        {
+                          name: 'Kurzgesagt – In a Nutshell',
+                          href: 'https://www.youtube.com/kurzgesagt',
+                        },
+                        { name: 'Veritasium', href: 'https://www.youtube.com/veritasium' },
+                        { name: 'bald and bankrupt', href: 'https://www.youtube.com/baldandbankrupt' },
+                        { name: 'Pick Up Limes', href: 'https://www.youtube.com/pickuplimes' },
+                        {
+                          name: 'BBC Learning English',
+                          href: 'https://www.youtube.com/bbclearningenglish',
+                        },
+                        {
+                          name: "Rachel's English",
+                          href: 'https://www.youtube.com/rachelsenglish',
+                        },
+                        { name: 'Vox', href: 'https://www.youtube.com/@Vox' },
+                        { name: 'TED-Ed', href: 'https://www.youtube.com/@TEDEd' },
+                        { name: 'TED', href: 'https://www.youtube.com/@TED' },
+                      ].map((ch) => (
+                        <a
+                          key={ch.href}
+                          href={ch.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 rounded-full border border-red-500/20 bg-red-50 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-100"
+                        >
+                          <svg
+                            className="w-3.5 h-3.5"
+                            viewBox="0 0 24 24"
+                            aria-hidden="true"
+                          >
+                            <path
+                              fill="currentColor"
+                              d="M21.8 8.001a3.002 3.002 0 0 0-2.113-2.123C17.938 5.25 12 5.25 12 5.25s-5.938 0-7.687.628A3.002 3.002 0 0 0 2.2 8.001C1.575 9.757 1.575 12.75 1.575 12.75s0 2.993.625 4.749a3.002 3.002 0 0 0 2.113 2.123C6.062 20.25 12 20.25 12 20.25s5.938 0 7.687-.628a3.002 3.002 0 0 0 2.113-2.123c.625-1.756.625-4.749.625-4.749s0-2.993-.625-4.749ZM10.25 15.5v-5l4.5 2.5-4.5 2.5Z"
+                            />
+                          </svg>
+                          <span className="truncate max-w-[10rem]">{ch.name}</span>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
                 </div>
+              )}
+              {coachPracticeRecs && coachPracticeRecs.length > 0 && (
+                <div className="mt-4 space-y-2">
+                  <h3 className="text-sm font-semibold text-gray-900">
+                    Recommended YouTube lessons
+                  </h3>
+                  <ul className="space-y-1 text-sm text-gray-700">
+                    {coachPracticeRecs
+                      .filter((rec) => rec.youtube_url)
+                      .map((rec) => (
+                        <li key={`${rec.video_id}-${rec.sentence_id}`}>
+                          <a
+                            href={rec.youtube_url ?? undefined}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-indigo-600 hover:underline"
+                          >
+                            {rec.video_title || rec.youtube_url}
+                          </a>
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              )}
+              {coachPracticeError && (
+                <p className="mt-2 text-xs text-red-600">
+                  {coachPracticeError}
+                </p>
               )}
               {!coachLoading && !coachFeedback && !coachError && (
                 <p className="text-sm text-gray-600">
@@ -510,9 +736,10 @@ export default function Dashboard() {
                 <button
                   type="button"
                   onClick={loadCoachFeedback}
-                  className="inline-flex items-center rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                  disabled={coachLoading}
+                  className="inline-flex items-center rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                 >
-                  Refresh feedback
+                  {coachLoading ? 'Refreshing…' : 'Refresh feedback'}
                 </button>
                 <button
                   type="button"

@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from auth import get_current_user
-from database import User, get_db
+from database import User, Video, get_db
 from routers.learning_progress import UserStats as StatsModel, get_user_stats
 from services.ai_client_factory import make_llm_for_user
 from services.qdrant_client import search_sentences_by_queries
@@ -60,6 +60,7 @@ class PracticeRecommendationItem(BaseModel):
     start_time: float
     end_time: float
     video_title: Optional[str] = None
+    youtube_url: Optional[str] = None
     score: float
     reasons: List[str]
 
@@ -369,6 +370,17 @@ async def recommend_practice_sentences(
             entry["matched_queries"].add(query)  # type: ignore[union-attr]
 
     # Build final recommendation list.
+    # First, resolve video URLs in bulk to avoid N+1 queries.
+    video_ids = {int(d["video_id"]) for d in aggregated.values() if d.get("video_id")}
+    video_url_map: dict[int, Optional[str]] = {}
+    if video_ids:
+        videos = (
+            db.query(Video)
+            .filter(Video.user_id == current_user.id, Video.id.in_(video_ids))
+            .all()
+        )
+        video_url_map = {v.id: v.youtube_url for v in videos}
+
     items: List[PracticeRecommendationItem] = []
     for data in aggregated.values():
         matched_queries = sorted(list(data.pop("matched_queries")))  # type: ignore[arg-type]
@@ -386,6 +398,7 @@ async def recommend_practice_sentences(
                 start_time=data["start_time"],
                 end_time=data["end_time"],
                 video_title=data.get("video_title"),
+                youtube_url=video_url_map.get(int(data["video_id"])),
                 score=data["score"],
                 reasons=reasons,
             )
