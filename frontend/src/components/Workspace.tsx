@@ -545,7 +545,7 @@ export default function Workspace() {
 
       if (!endTime || endTime <= 0) return
 
-      const hasReachedEnd = audio.currentTime >= endTime
+      const hasReachedEnd = audio.currentTime >= endTime - 0.01
       if (!hasReachedEnd) return
 
       // When repeat is ∞, only advance when the user has spelled the current sentence fully correctly
@@ -613,8 +613,14 @@ export default function Workspace() {
           repeatCountRef.current++
           const audioEl = audioRef.current
           if (audioEl && currentSentence) {
+            setCurrentTime(currentSentence.start_time)
+            programmaticSeekRef.current = true
+            const onSeeked = () => {
+              audioEl.removeEventListener('seeked', onSeeked)
+              audioEl.play().catch(() => {})
+            }
+            audioEl.addEventListener('seeked', onSeeked, { once: true })
             audioEl.currentTime = currentSentence.start_time
-            audioEl.play().catch(() => {})
           }
         } else {
           repeatCountRef.current = 0
@@ -625,8 +631,14 @@ export default function Workspace() {
             setCurrentSentenceIndex(nextIndex)
             const ns = sentences[nextIndex]
             if (ns) {
+              setCurrentTime(ns.start_time)
+              programmaticSeekRef.current = true
+              const onSeeked = () => {
+                audioEl.removeEventListener('seeked', onSeeked)
+                audioEl.play().catch(() => {})
+              }
+              audioEl.addEventListener('seeked', onSeeked, { once: true })
               audioEl.currentTime = ns.start_time
-              audioEl.play().catch(() => {})
             }
           } else {
             setIsPlaying(false)
@@ -638,7 +650,7 @@ export default function Workspace() {
       }
     }
 
-    const intervalId = setInterval(checkSentenceEnd, 50) // Check more frequently for better accuracy
+    const intervalId = setInterval(checkSentenceEnd, 20) // Check more frequently for better accuracy
     return () => {
       clearInterval(intervalId)
       if (intervalTimeoutRef.current && !isWaitingForPauseIntervalRef.current) {
