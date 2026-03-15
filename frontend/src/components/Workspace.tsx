@@ -111,6 +111,10 @@ export default function Workspace() {
   const [lessonMenuOpen, setLessonMenuOpen] = useState<number | null>(null)
   const [playlistMenuOpen, setPlaylistMenuOpen] = useState(false)
   const [lessonProgress, setLessonProgress] = useState<Record<number, number>>({})
+  const [lastInputFeedback, setLastInputFeedback] = useState<{
+    wordIndex: number
+    type: 'correct' | 'wrong'
+  } | null>(null)
 
   useEffect(() => {
     if (!lessonMenuOpen) return
@@ -125,6 +129,13 @@ export default function Workspace() {
     window.addEventListener('click', onClose)
     return () => window.removeEventListener('click', onClose)
   }, [playlistMenuOpen])
+
+  // Clear input feedback after animation so it can replay on next keystroke
+  useEffect(() => {
+    if (lastInputFeedback === null) return
+    const t = setTimeout(() => setLastInputFeedback(null), 550)
+    return () => clearTimeout(t)
+  }, [lastInputFeedback])
 
   // Preload most recent lesson history per video to drive sidebar progress bars.
   useEffect(() => {
@@ -1734,8 +1745,10 @@ export default function Workspace() {
                                     return nextArr
                                   })
                                   setVideoSessionScores((s) => ({ ...s, incorrectChars: s.incorrectChars + 1 }))
+                                  setLastInputFeedback({ wordIndex: idx, type: 'wrong' })
                                 } else if (prevOk && nextOk) {
                                   setVideoSessionScores((s) => ({ ...s, correctChars: s.correctChars + 1 }))
+                                  setLastInputFeedback({ wordIndex: idx, type: 'correct' })
                                 }
                               }
                               if (isHintShown) {
@@ -1806,6 +1819,10 @@ export default function Workspace() {
                                     ? { ...s, correctChars: s.correctChars + 1 }
                                     : { ...s, incorrectChars: s.incorrectChars + 1 }
                                 )
+                                setLastInputFeedback({
+                                  wordIndex: idx,
+                                  type: isCorrectFirstChar ? 'correct' : 'wrong',
+                                })
                                 setWordHintIndex(null)
                                 setWordInputs((prev) => {
                                   const next = [...prev]
@@ -1815,7 +1832,13 @@ export default function Workspace() {
                                 })
                               }
                             }}
-                            className={`bg-transparent border-0 outline-none px-0.5 py-0 min-w-0 rounded-sm focus:shadow-[0_0_0_2px_rgba(251,191,36,0.5)] ${underlineClass} ${isHintShown ? 'text-gray-400' : 'text-gray-900'}`}
+                            className={`bg-transparent border-0 outline-none px-0.5 py-0 min-w-0 rounded-sm focus:shadow-[0_0_0_2px_rgba(251,191,36,0.5)] ${underlineClass} ${isHintShown ? 'text-gray-400' : 'text-gray-900'} ${
+                              lastInputFeedback?.wordIndex === idx && lastInputFeedback?.type === 'correct'
+                                ? 'input-feedback-correct'
+                                : lastInputFeedback?.wordIndex === idx && lastInputFeedback?.type === 'wrong'
+                                  ? 'input-feedback-wrong'
+                                  : ''
+                            }`}
                             style={{ maxWidth: `${Math.max(2, word.length*1.2)}ch`, fontSize: '1.8em' }}
                             aria-label={`Word ${idx + 1}`}
                             autoComplete="off"
