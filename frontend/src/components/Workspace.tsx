@@ -1686,20 +1686,21 @@ export default function Workspace() {
           {/* Text Input Panel - Per-word input */}
           <div className="flex-1 p-4 overflow-y-auto bg-white">
             {currentSentence ? (() => {
-              // When fully correct: show sentence in bold green, no editing
-              if (isCurrentSentenceFullyCorrect) {
-                return (
-                  <div className="max-w-4xl mx-auto">
-                    <p className="flex mt-3 text-sm text-green-600/80">✔ Correct</p>
-                    <div className="text-xl leading-relaxed font-bold text-green-600 flex flex-wrap items-baseline gap-x-2 gap-y-3" style={{ fontSize: '2.2em' }}>
-                      {currentSentence.sentence_text}
-                    </div>
-                  </div>
-                )
-              }
               const words = currentSentence.sentence_text.split(/\s+/).filter(Boolean)
               return (
                 <div className="max-w-4xl mx-auto">
+                  <div className="h-8 flex items-center mt-3 mb-1">
+                    <p
+                      className={`inline-flex items-center gap-1 text-xl font-semibold transition-opacity ${
+                        isCurrentSentenceFullyCorrect
+                          ? 'text-green-600 opacity-100'
+                          : 'text-transparent opacity-0'
+                      }`}
+                    >
+                      <span className="text-xl">✔</span>
+                      <span>Correct</span>
+                    </p>
+                  </div>
                   <div className="text-xl leading-relaxed text-gray-900 flex flex-wrap items-baseline gap-x-2 gap-y-3">
                     {words.map((word, idx) => {
                       if (isPunctuationOnlyToken(word)) {
@@ -1726,6 +1727,7 @@ export default function Workspace() {
                               wordInputRefs.current[idx] = el
                             }}
                             type="text"
+                            disabled={Boolean(isCurrentSentenceFullyCorrect)}
                             value={value}
                             onChange={(e) => {
                               const v = e.target.value
