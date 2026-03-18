@@ -1771,6 +1771,19 @@ export default function Workspace() {
                               })
                             }}
                             onKeyDown={(e) => {
+                              // If a hint is currently shown for this word and the user presses Backspace,
+                              // clear the hint and underlying value so the input becomes empty.
+                              if (e.key === 'Backspace' && isHintShown) {
+                                e.preventDefault()
+                                setWordHintIndex(null)
+                                setWordInputs((prev) => {
+                                  const next = [...prev]
+                                  while (next.length <= idx) next.push('')
+                                  next[idx] = ''
+                                  return next
+                                })
+                                return
+                              }
                               if (e.key === 'Backspace' && value.length === 0 && idx > 0) {
                                 e.preventDefault()
                                 wordInputRefs.current[idx - 1]?.focus()
