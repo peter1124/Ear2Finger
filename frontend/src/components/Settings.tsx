@@ -21,6 +21,8 @@ import {
 
 type SettingsSection = 'ai-api-key' | 'about' | 'users'
 
+const APP_VERSION = `1.0.0 (${__APP_COMMIT__})`
+
 export default function Settings() {
   const navigate = useNavigate()
   const { user, logout, setUser } = useAuth()
@@ -508,22 +510,92 @@ export default function Settings() {
           {activeSection === 'about' && (
             <div className="w-full max-w-3xl">
               <h1 className="text-2xl font-bold text-gray-900 mb-6">ABOUT</h1>
-              <div className="space-y-4 text-gray-700">
-                <p>
-                  <strong>Ear2Finger</strong> is a language learning application designed to improve your English listening and dictation skills.
-                </p>
-                <p>
-                  Practice with YouTube videos, get real-time feedback, and track your progress.
-                </p>
-                <div className="pt-4 mt-2 border-t border-gray-200 space-y-1">
-                  <p>
-                    <strong>Version:</strong> 1.0.0
-                  </p>
-                  <p>
-                    <strong>Build Date:</strong> {new Date().toLocaleDateString()}
+
+              <section className="bg-white rounded-2xl border border-gray-200 p-5 flex flex-col md:flex-row gap-6">
+                <div className="flex-1 space-y-3 text-left">
+                  <div className="flex items-center gap-3">
+                    <div className="w-20 h-20 rounded-2xl border border-gray-200 bg-gray-50 flex items-center justify-center shadow-sm">
+                      <img src="/icon.png" alt="Ear2Finger" className="w-14 h-14 rounded-xl" />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-lg font-semibold text-gray-900">Ear2Finger</p>
+                      <p className="text-[12px] text-gray-500">Dictation workspace powered by YouTube & AI.</p>
+                    </div>
+                  </div>
+                  <h2 className="text-base font-semibold text-gray-900">
+                    Turn YouTube listening into active dictation practice
+                  </h2>
+
+                  <p className="text-sm text-gray-600 leading-relaxed">
+                    Ear2Finger converts YouTube videos with subtitles into sentence-by-sentence
+                    dictation lessons. Practice with per-word inputs, get real-time feedback, and
+                    use your AI coach to recommend what to study next.
                   </p>
                 </div>
-              </div>
+
+                <div className="w-full md:w-56 flex items-center justify-center">
+                  <div className="flex flex-col items-center gap-3 text-left">
+
+                    <dl className="mt-1 w-full text-sm space-y-3">
+                      <div className="flex flex-col">
+                        <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                          Version
+                        </dt>
+                        <dd className="mt-0.5 font-mono text-gray-900 break-all">{APP_VERSION}</dd>
+                      </div>
+                      <div className="flex flex-col">
+                        <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                          Repository
+                        </dt>
+                        <dd className="mt-0.5">
+                          <a
+                            href="https://github.com/stephenyin/Ear2Finger"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 text-sm text-gray-800 hover:text-indigo-700 hover:underline"
+                          >
+                            <svg
+                              className="w-4 h-4"
+                              viewBox="0 0 24 24"
+                              aria-hidden="true"
+                              fill="currentColor"
+                            >
+                              <path d="M12 0.5C5.373 0.5 0 5.872 0 12.5c0 5.297 3.438 9.787 8.205 11.387.6.111.82-.261.82-.58 0-.287-.011-1.243-.017-2.255-3.338.726-4.042-1.61-4.042-1.61-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.73.083-.73 1.205.085 1.84 1.237 1.84 1.237 1.07 1.834 2.809 1.304 3.495.997.108-.775.42-1.305.763-1.605-2.665-.304-5.467-1.332-5.467-5.93 0-1.31.469-2.381 1.236-3.221-.124-.303-.536-1.524.117-3.176 0 0 1.008-.322 3.301 1.23a11.42 11.42 0 0 1 3.003-.404c1.018.005 2.045.138 3.003.404 2.291-1.552 3.297-1.23 3.297-1.23.655 1.652.243 2.873.119 3.176.77.84 1.235 1.911 1.235 3.221 0 4.61-2.807 5.624-5.48 5.921.431.372.815 1.102.815 2.222 0 1.604-.015 2.896-.015 3.289 0 .321.216.697.825.579C20.565 22.283 24 17.793 24 12.5 24 5.872 18.627 0.5 12 0.5z" />
+                            </svg>
+                            <span className="truncate max-w-[16rem]">stephenyin/Ear2Finger</span>
+                          </a>
+                        </dd>
+                      </div>
+                      <div className="flex flex-col">
+                        <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">
+                          LinkedIn
+                        </dt>
+                        <dd className="mt-0.5">
+                          <a
+                            href="https://www.linkedin.com/in/hang-yin-stephen/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 text-sm text-gray-800 hover:text-indigo-700 hover:underline"
+                          >
+                            <svg
+                              className="w-4 h-4"
+                              viewBox="0 0 24 24"
+                              aria-hidden="true"
+                              fill="currentColor"
+                            >
+                              <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.852 0-2.136 1.445-2.136 2.938v5.668H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.602 0 4.266 2.37 4.266 5.455v6.286zM5.337 7.433c-1.084 0-1.959-.875-1.959-1.957 0-1.083.875-1.958 1.959-1.958 1.082 0 1.957.875 1.957 1.958 0 1.082-.875 1.957-1.957 1.957zM7.119 20.452H3.555V9h3.564v11.452z" />
+                            </svg>
+                            <span className="truncate max-w-[16rem]">hang-yin-stephen</span>
+                          </a>
+                        </dd>
+                      </div>
+                      <p className="text-[11px] text-gray-500 pt-1 border-t border-gray-100">
+                        Build date: {new Date().toLocaleDateString()}
+                      </p>
+                    </dl>
+                  </div>
+                </div>
+              </section>
             </div>
           )}
 

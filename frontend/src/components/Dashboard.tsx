@@ -457,16 +457,13 @@ export default function Dashboard() {
                       </p>
                       <div className="flex flex-wrap gap-1.5">
                         {[
-                          {
-                            name: 'Kurzgesagt – In a Nutshell',
-                            href: 'https://www.youtube.com/kurzgesagt',
-                          },
-                          { name: 'Veritasium', href: 'https://www.youtube.com/veritasium' },
-                          { name: 'Pick Up Limes', href: 'https://www.youtube.com/pickuplimes' },
-                          { name: 'BBC Learning English', href: 'https://www.youtube.com/bbclearningenglish' },
-                          { name: 'Rachel\'s English', href: 'https://www.youtube.com/rachelsenglish' },
                           { name: 'TED-Ed', href: 'https://www.youtube.com/@TEDEd' },
                           { name: 'TED', href: 'https://www.youtube.com/@TED' },
+                          { name: 'BBC Learning English', href: 'https://www.youtube.com/bbclearningenglish' },
+                          { name: 'Kurzgesagt – In a Nutshell', href: 'https://www.youtube.com/kurzgesagt'},
+                          { name: 'Veritasium', href: 'https://www.youtube.com/veritasium' },
+                          { name: 'Pick Up Limes', href: 'https://www.youtube.com/pickuplimes' },
+                          { name: 'Rachel\'s English', href: 'https://www.youtube.com/rachelsenglish' },
                         ].map((ch) => (
                           <a
                             key={ch.href}
