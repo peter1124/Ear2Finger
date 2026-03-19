@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ear2Finger - Dictation Practice with AI Coach</title>
+    <style>
+      :root {
+        --bg: #f7f7fb;
+        --card: #ffffff;
+        --text: #0f172a;
+        --muted: #64748b;
+        --border: rgba(15, 23, 42, 0.12);
+        --primary: #4F46E5;
+        --primary2: #7C3AED;
+        --good: #16a34a;
+        --bad: #dc2626;
+        --shadow: 0 12px 30px rgba(2, 6, 23, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica,
+          Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.6;
+      }
+
+      a {
+        color: var(--primary);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        backdrop-filter: blur(10px);
+        background: rgba(247, 247, 251, 0.85);
+        border-bottom: 1px solid var(--border);
+      }
+
+      .wrap {
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 0 18px;
+      }
+
+      .header-inner {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 0;
+        gap: 16px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-width: 220px;
+      }
+
+      .brand img {
+        width: 48px;
+        height: 48px;
+        border-radius: 12px;
+        background: white;
+        border: 1px solid var(--border);
+        padding: 6px;
+      }
+
+      .brand .title {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .brand .title strong {
+        font-size: 16px;
+      }
+
+      .brand .title span {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      nav {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: flex-end;
+      }
+
+      nav a {
+        display: inline-flex;
+        align-items: center;
+        padding: 7px 10px;
+        border-radius: 999px;
+        border: 1px solid transparent;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      nav a:hover {
+        background: rgba(79, 70, 229, 0.06);
+        border-color: rgba(79, 70, 229, 0.2);
+        color: var(--text);
+        text-decoration: none;
+      }
+
+      main {
+        padding: 24px 0 60px;
+      }
+
+      .hero {
+        margin-top: 8px;
+        padding: 26px 22px;
+        border-radius: 20px;
+        border: 1px solid var(--border);
+        background: linear-gradient(180deg, rgba(79, 70, 229, 0.08), rgba(124, 58, 237, 0.04));
+        box-shadow: var(--shadow);
+      }
+
+      .hero-grid {
+        display: grid;
+        grid-template-columns: 1.25fr 0.75fr;
+        gap: 18px;
+        align-items: center;
+      }
+
+      @media (max-width: 820px) {
+        .hero-grid {
+          grid-template-columns: 1fr;
+        }
+        nav {
+          justify-content: flex-start;
+        }
+        .brand {
+          min-width: auto;
+        }
+      }
+
+      .kicker {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 12px;
+        border: 1px solid rgba(79, 70, 229, 0.2);
+        background: rgba(79, 70, 229, 0.06);
+        border-radius: 999px;
+        font-size: 13px;
+        color: var(--primary);
+        font-weight: 600;
+      }
+
+      h1 {
+        margin: 14px 0 8px;
+        font-size: 34px;
+        letter-spacing: -0.02em;
+      }
+
+      .lead {
+        margin: 0;
+        color: var(--muted);
+        font-size: 16px;
+        max-width: 64ch;
+      }
+
+      .cta-row {
+        margin-top: 16px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 10px 14px;
+        border-radius: 12px;
+        border: 1px solid rgba(79, 70, 229, 0.25);
+        background: rgba(79, 70, 229, 0.08);
+        color: var(--primary);
+        font-weight: 600;
+        font-size: 14px;
+      }
+
+      .btn.primary {
+        background: linear-gradient(135deg, var(--primary), var(--primary2));
+        color: white;
+        border-color: rgba(0, 0, 0, 0);
+      }
+
+      section.card {
+        margin-top: 18px;
+        padding: 22px 20px;
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        box-shadow: 0 10px 26px rgba(2, 6, 23, 0.05);
+      }
+
+      section.card h2 {
+        margin: 0 0 10px;
+        font-size: 20px;
+        letter-spacing: -0.01em;
+      }
+
+      section.card p {
+        margin: 10px 0 0;
+        color: var(--muted);
+      }
+
+      .grid-2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+
+      @media (max-width: 820px) {
+        .grid-2 {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .list {
+        margin: 10px 0 0;
+        padding-left: 18px;
+        color: var(--muted);
+      }
+
+      .shot-grid {
+        margin-top: 14px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      @media (max-width: 820px) {
+        .shot-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .shot {
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        align-items: center;
+        background: #fff;
+      }
+
+      .shot img {
+        width: 100%;
+        height: auto;
+        border-radius: 10px;
+        display: block;
+      }
+
+      .shot .cap {
+        margin-top: 8px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      code.inline {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+        font-size: 13px;
+        padding: 2px 6px;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: rgba(2, 6, 23, 0.03);
+      }
+
+      pre {
+        overflow: auto;
+        padding: 14px 14px;
+        background: rgba(2, 6, 23, 0.03);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        margin: 12px 0 0;
+      }
+
+      details {
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 10px 12px;
+        background: rgba(2, 6, 23, 0.015);
+      }
+
+      details + details {
+        margin-top: 12px;
+      }
+
+      summary {
+        cursor: pointer;
+        font-weight: 700;
+      }
+
+      footer {
+        margin-top: 18px;
+        padding: 22px 0 8px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <header>
+      <div class="wrap header-inner">
+        <div class="brand">
+          <img src="./assets/icon.png" alt="Ear2Finger icon" />
+          <div class="title">
+            <strong>Ear2Finger</strong>
+            <span>Dictation practice + AI coach</span>
+          </div>
+        </div>
+        <nav aria-label="Page navigation">
+          <a href="#overview">Overview</a>
+          <a href="#installation">Installation</a>
+          <a href="#how-to-use">How to use</a>
+          <a href="#future-plans">Future Plans</a>
+          <a href="#faqs">FAQs</a>
+          <a href="#contact">Contact</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <div class="hero" id="top">
+        <div class="hero-grid">
+          <div>
+            <div class="kicker">YouTube subtitles → Sentence dictation → AI coach feedback</div>
+            <h1>Turn listening into active dictation</h1>
+            <p class="lead">
+              <strong>Ear2Finger</strong> is a locally deployable web app that turns YouTube videos into
+              sentence-by-sentence dictation practice. Your progress is tracked and your AI
+              coach recommends what to study next.
+            </p>
+            <div class="cta-row">
+              <a class="btn primary" href="#how-to-use">Start practicing</a>
+              <a class="btn" href="https://github.com/stephenyin/Ear2Finger" target="_blank" rel="noreferrer">
+                View repository
+              </a>
+            </div>
+          </div>
+
+          <div>
+            <div class="shot" style="padding: 0; border-radius: 18px; overflow: hidden;">
+              <img src="./assets/dashboard.png" alt="Dashboard screenshot" />
+            </div>
+            <p style="margin: 10px 0 0; color: var(--muted); font-size: 13px; text-align: center;">
+              Dashboard with session stats and AI coach recap.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <section class="card" id="overview">
+        <h2>1) Overview</h2>
+        <div class="grid-2">
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <p>
+              Import a YouTube URL → Extract subtitles → Segment into timestamped sentences →
+              Practice with per-word inputs and keyboard shortcuts.
+            </p>
+            <ul class="list">
+              <li>YouTube Import + Subtitle Processing</li>
+              <li>Dictation workspace with per-word typing</li>
+              <li>Session Progress Tracking (Correct/Hint/Incorrect)</li>
+              <li>AI Coach Feedback and Practice Recommendations</li>
+            </ul>
+            <p>
+              The AI coach uses your practice history plus vector search to surface sentences
+              based on your current weak spots.
+            </p>
+          </div>
+          <div>
+            <div class="shot-grid" aria-label="Feature screenshots">
+              <div class="shot">
+                <img src="./assets/login.png" alt="Sign in screenshot" />
+                <div class="cap">Sign in</div>
+              </div>
+              <div class="shot">
+                <img src="./assets/import-lesson.png" alt="Import lesson screenshot" />
+                <div class="cap">Import a lesson</div>
+              </div>
+              <div class="shot">
+                <img src="./assets/dictation.png" alt="Dictation workspace screenshot" />
+                <div class="cap">Dictation workspace</div>
+              </div>
+              <div class="shot">
+                <img src="./assets/ai-api.png" alt="AI API settings screenshot" />
+                <div class="cap">AI API settings</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="installation">
+        <h2>2) Installation</h2>
+        <h3 style="margin: 4px 0 4px; font-size: 16px; color: var(--text);">
+          • Install from Docker image
+        </h3>
+        <p style="margin: 6px 0 14px; color: var(--muted);">
+          TBD – a prebuilt Docker image and run instructions will be provided here.
+        </p>
+
+        <h3 style="margin: 4px 0 4px; font-size: 16px; color: var(--text);">
+          • Install from source code
+        </h3>
+        <p>
+          You can run Ear2Finger locally for development from the source code:
+        </p>
+        <div class="grid-2">
+          <div>
+            <h4 style="margin: 8px 0 0; font-size: 14px; color: var(--text);">Backend</h3>
+            <pre><code>cd backend
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+uvicorn main:app --reload --host 0.0.0.0 --port 8000</code></pre>
+          </div>
+          <div>
+            <h4 style="margin: 8px 0 0; font-size: 14px; color: var(--text);">Frontend</h3>
+            <pre><code>cd frontend
+npm install
+npm run dev</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="how-to-use">
+        <h2>3) How to use</h2>
+        <ul class="list">
+          <li>Open the app in your browser (default: <code class="inline">http://localhost:3000</code>).</li>
+          <li>Import a YouTube lesson (will extract subtitles, download audio, and build a dictation session).</li>
+          <li>Practice sentence-by-sentence:
+            <ul>
+              <li>Use keyboard shortcuts to move between words / sentences</li>
+              <li>Type what you hear; get underline guidance, hints, and looped playback</li>
+            </ul>
+          </li>
+          <li>When you’re ready, open <strong>Ask coach</strong> to get AI feedback and recommendations.</li>
+        </ul>
+        <div style="margin-top: 14px;">
+          <p style="margin: 0 0 6px; color: var(--muted); font-size: 13px;">
+            Short video walkthrough: importing a YouTube lesson into Ear2Finger.
+          </p>
+          <div style="position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; border-radius: 12px; border: 1px solid var(--border);">
+            <iframe
+              src="https://www.youtube.com/embed/TEuXrHZ0VSE"
+              title="Import a YouTube lesson into Ear2Finger"
+              style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0;"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowfullscreen
+            ></iframe>
+          </div>
+        </div>
+        <div style="margin-top: 18px;">
+          <p style="margin: 0 0 6px; color: var(--muted); font-size: 13px;">
+            Short video demo: what the dictation practice looks like.
+          </p>
+          <div style="position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; border-radius: 12px; border: 1px solid var(--border);">
+            <iframe
+              src="https://www.youtube.com/embed/5z7yxVxZC1I"
+              title="Dictation practice demo in Ear2Finger"
+              style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0;"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowfullscreen
+            ></iframe>
+          </div>
+        </div>
+      </section>
+
+      <section class="card" id="future-plans">
+        <h2>4) Future Plans</h2>
+        <ul class="list">
+          <li>Multi-language dictation and proper noun detection</li>
+          <li>Token/character-level typing UX for languages without spaces (e.g. Chinese, Japanese, Korean)</li>
+          <li>More configurable review sessions (weak-word schedules)</li>
+          <li>More AI coach features (e.g. sentence difficulty, network search for practice recommendations)</li>
+        </ul>
+      </section>
+
+      <section class="card" id="faqs">
+        <h2>5) FAQs</h2>
+
+        <details open>
+          <summary>Do I need an AI key?</summary>
+          <p style="margin: 8px 0 0; color: var(--muted);">
+            Yes, to use the AI coach features. Configure your provider keys in the app Settings.
+          </p>
+        </details>
+
+        <details>
+          <summary>What does “Import” do?</summary>
+          <p style="margin: 8px 0 0; color: var(--muted);">
+            It downloads subtitles for the selected YouTube URL, segments them into sentences,
+            and stores timestamps + practice history for dictation.
+          </p>
+        </details>
+
+        <details>
+          <summary>Is my practice data stored locally?</summary>
+          <p style="margin: 8px 0 0; color: var(--muted);">
+            By default, this project stores data locally (SQLite + Qdrant). For cloud deployments,
+            it depends on where you host the database and vector store.
+          </p>
+        </details>
+      </section>
+
+      <section class="card" id="contact">
+        <h2>6) Contact information</h2>
+        <div style="display: flex; gap: 10px;">
+          <a href="https://www.linkedin.com/in/hang-yin-stephen/" target="_blank" rel="noreferrer">
+            <img src="https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn" /> </a>
+          <a href="https://github.com/stephenyin/Ear2Finger" target="_blank" rel="noreferrer">
+            <img src="https://img.shields.io/badge/GitHub-100000?style=for-the-badge&logo=github&logoColor=white" alt="GitHub" /> </a>
+        </div>
+      </section>
+
+      <footer class="wrap">
+        <div>
+          © Ear2Finger. Built for language learning with dictation practice and an AI coach.
+        </div>
+      </footer>
+    </main>
+  </body>
+</html>
