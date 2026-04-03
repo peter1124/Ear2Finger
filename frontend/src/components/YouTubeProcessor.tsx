@@ -112,10 +112,11 @@ export default function YouTubeProcessor() {
   }, [])
 
   return (
-    <div className="space-y-6">
+    <div className="min-h-screen bg-gray-100 text-left">
+      <div className="max-w-5xl mx-auto px-4 py-6 sm:px-6 space-y-6 pb-12">
       {/* YouTube URL Input Form */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6">
-        <h2 className="text-xl font-semibold text-gray-800 dark:text-white mb-4">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-4 sm:p-6">
+        <h2 className="text-lg sm:text-xl font-semibold text-gray-800 dark:text-white mb-4">
           Process YouTube Video
         </h2>
         <p className="text-gray-600 dark:text-gray-400 mb-6">
@@ -178,9 +179,9 @@ export default function YouTubeProcessor() {
       </div>
 
       {/* Processed Videos List */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-2xl font-semibold text-gray-800 dark:text-white">
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-4 sm:p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+          <h2 className="text-xl sm:text-2xl font-semibold text-gray-800 dark:text-white">
             Processed Videos
           </h2>
           <button
@@ -236,8 +237,8 @@ export default function YouTubeProcessor() {
 
       {/* Sentences Display */}
       {selectedVideo && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6">
-          <h2 className="text-xl font-semibold text-gray-800 dark:text-white mb-4">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-4 sm:p-6">
+          <h2 className="text-lg sm:text-xl font-semibold text-gray-800 dark:text-white mb-4 break-words">
             Sentences from: {selectedVideo.title || 'Untitled Video'}
           </h2>
 
@@ -274,6 +275,7 @@ export default function YouTubeProcessor() {
           )}
         </div>
       )}
+      </div>
     </div>
   )
 }

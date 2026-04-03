@@ -66,9 +66,26 @@
 body {
   margin: 0;
   display: flex;
-  place-items: center;
   min-width: 320px;
   min-height: 100vh;
+}
+
+/* Mobile: top-aligned full-width app; desktop unchanged */
+@media (max-width: 767px) {
+  body {
+    place-items: flex-start;
+    align-items: stretch;
+  }
+
+  #root {
+    text-align: left;
+  }
+}
+
+@media (min-width: 768px) {
+  body {
+    place-items: center;
+  }
 }
 
 #root {

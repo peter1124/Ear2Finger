@@ -27,6 +27,7 @@ export default function Settings() {
   const navigate = useNavigate()
   const { user, logout, setUser } = useAuth()
   const [activeSection, setActiveSection] = useState<SettingsSection>('ai-api-key')
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [aiProvider, setAiProvider] = useState<AIProvider>('gemini')
   const [apiKey, setApiKey] = useState('')
   const [hasOpenaiKey, setHasOpenaiKey] = useState(false)
@@ -106,6 +107,15 @@ export default function Settings() {
       loadAIKeys()
     }
   }, [activeSection, loadAIKeys])
+
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)')
+    const onChange = () => {
+      if (mq.matches) setMobileNavOpen(false)
+    }
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
 
   const openAddUser = () => {
     setEditingUser(null)
@@ -244,18 +254,18 @@ export default function Settings() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-white">
+    <div className="h-screen min-h-0 flex flex-col bg-white">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <header className="bg-white border-b border-gray-200 px-3 py-2 md:px-4 md:py-3 flex flex-wrap items-center justify-between gap-y-2 gap-x-2 md:flex-nowrap md:gap-0">
+        <div className="flex items-center gap-2 order-1 shrink-0">
           <img src="/icon.png" alt="Ear2Finger" className="w-8 h-8" />
           <span className="text-lg font-semibold text-gray-900">Ear2Finger</span>
         </div>
 
-        <nav className="flex items-center gap-1">
+        <nav className="order-3 basis-full flex flex-wrap items-center gap-1 md:order-2 md:basis-auto md:flex-nowrap">
           <button
             onClick={() => navigate('/workspace')}
-            className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-2"
+            className="px-2 py-2 md:px-4 text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-1.5 md:gap-2 text-sm md:text-base"
           >
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 511.999 511.999">
               <path d="M480.276,62.526H156.574c-17.493,0-31.725,14.231-31.725,31.725v28.232l-30.679-30.68l-51.975,51.975l23.592,23.592
@@ -298,7 +308,7 @@ export default function Settings() {
           </button>
           <button
             onClick={() => navigate('/dashboard')}
-            className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-2"
+            className="px-2 py-2 md:px-4 text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-1.5 md:gap-2 text-sm md:text-base"
           >
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 32 32">
               <polygon points="4 20 4 22 8.586 22 2 28.586 3.414 30 10 23.414 10 28 12 28 12 20 4 20"/>
@@ -309,7 +319,7 @@ export default function Settings() {
             </svg>
             Dashboard
           </button>
-          <button className="px-4 py-2 bg-gray-900 text-white rounded-lg flex items-center gap-2">
+          <button className="px-2 py-2 md:px-4 bg-gray-900 text-white rounded-lg flex items-center gap-1.5 md:gap-2 text-sm md:text-base">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -318,7 +328,7 @@ export default function Settings() {
           </button>
         </nav>
 
-        <div className="flex items-center gap-3 text-gray-700">
+        <div className="flex items-center gap-2 md:gap-3 text-gray-700 order-2 md:order-3 shrink-0 ml-auto md:ml-0">
           <div className="flex items-center gap-2 px-2 py-1 rounded-full bg-gray-50 border border-gray-200">
             <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -330,7 +340,7 @@ export default function Settings() {
                 />
               </svg>
             </div>
-            <span className="font-medium text-sm">{user?.username ?? 'User'}</span>
+            <span className="font-medium text-sm max-w-[8rem] md:max-w-none truncate">{user?.username ?? 'User'}</span>
           </div>
           <button
             onClick={() => logout()}
@@ -349,15 +359,48 @@ export default function Settings() {
         </div>
       </header>
 
-      <div className="flex-1 flex overflow-hidden">
+      {!mobileNavOpen && (
+        <div className="border-b border-gray-200 bg-white px-4 py-2.5 md:hidden">
+          <button
+            type="button"
+            onClick={() => setMobileNavOpen(true)}
+            className="flex w-full items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2.5 text-sm font-medium text-indigo-900 hover:bg-indigo-100"
+            aria-controls="settings-nav-sidebar"
+          >
+            <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h10" />
+            </svg>
+            Open settings sections
+          </button>
+        </div>
+      )}
+
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
         {/* Left Sidebar */}
-        <aside className="w-80 bg-gray-50 border-r border-gray-200 flex flex-col">
+        <aside
+          id="settings-nav-sidebar"
+          className={`w-full md:w-80 shrink-0 max-md:max-h-[min(50vh,380px)] md:max-h-none bg-gray-50 border-gray-200 border-b md:border-b-0 md:border-r flex flex-col min-h-0 ${
+            !mobileNavOpen ? 'max-md:hidden' : ''
+          }`}
+        >
+          <div className="md:hidden flex justify-end border-b border-gray-200 px-3 py-1.5 bg-gray-50">
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen(false)}
+              className="text-sm font-medium text-indigo-700 hover:text-indigo-900 py-1 px-2 rounded-md hover:bg-indigo-50"
+            >
+              Done
+            </button>
+          </div>
           {/* Settings Navigation */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-1">
+          <div className="flex-1 overflow-y-auto p-3 md:p-4 space-y-1 min-h-0">
             {settingsSections.map((section) => (
               <button
                 key={section.id}
-                onClick={() => setActiveSection(section.id)}
+                onClick={() => {
+                  setActiveSection(section.id)
+                  setMobileNavOpen(false)
+                }}
                 className={`w-full text-left px-4 py-3 rounded-lg transition-colors ${
                   activeSection === section.id
                     ? 'bg-gray-900 text-white'
@@ -371,7 +414,7 @@ export default function Settings() {
         </aside>
 
         {/* Main Content Area */}
-        <main className="flex-1 overflow-y-auto bg-white p-6 flex justify-center">
+        <main className="flex-1 overflow-y-auto bg-white p-4 md:p-6 flex justify-center min-h-0">
           {activeSection === 'ai-api-key' && (
             <div className="w-full max-w-3xl">
               <h1 className="text-2xl font-bold text-gray-900 mb-2">AI API-KEY</h1>

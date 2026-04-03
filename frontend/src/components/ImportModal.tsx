@@ -145,7 +145,7 @@ export default function ImportModal({ isOpen, onClose, onImport, defaultPlaylist
                       onChange={() => setSelectedPlaylistId(playlist.id)}
                       className="mr-3"
                     />
-                    <div className="flex flex-row items-center w-full justify-between px-8">
+                    <div className="flex flex-row items-center w-full justify-between pl-2 pr-1 sm:px-8">
                       <div className="text-sm text-gray-900">{playlist.name}</div>
                       <div className="text-xs text-gray-500">{playlist.video_count} videos</div>
                     </div>

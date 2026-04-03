@@ -172,18 +172,18 @@ export default function Dashboard() {
   )
 
   return (
-    <div className="h-screen flex flex-col bg-white">
+    <div className="h-screen min-h-0 flex flex-col bg-white">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <header className="bg-white border-b border-gray-200 px-3 py-2 md:px-4 md:py-3 flex flex-wrap items-center justify-between gap-y-2 gap-x-2 md:flex-nowrap md:gap-0">
+        <div className="flex items-center gap-2 order-1 shrink-0">
           <img src="/icon.png" alt="Ear2Finger" className="w-8 h-8" />
           <span className="text-lg font-semibold text-gray-900">Ear2Finger</span>
         </div>
 
-        <nav className="flex items-center gap-1">
+        <nav className="order-3 basis-full flex flex-wrap items-center gap-1 md:order-2 md:basis-auto md:flex-nowrap">
           <button
             onClick={() => navigate('/workspace')}
-            className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-2"
+            className="px-2 py-2 md:px-4 text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-1.5 md:gap-2 text-sm md:text-base"
           >
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 511.999 511.999">
               <path d="M480.276,62.526H156.574c-17.493,0-31.725,14.231-31.725,31.725v28.232l-30.679-30.68l-51.975,51.975l23.592,23.592
@@ -224,7 +224,7 @@ export default function Dashboard() {
             </svg>
             Workspace
           </button>
-          <button className="px-4 py-2 bg-gray-900 text-white rounded-lg flex items-center gap-2">
+          <button className="px-2 py-2 md:px-4 bg-gray-900 text-white rounded-lg flex items-center gap-1.5 md:gap-2 text-sm md:text-base">
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 32 32">
               <polygon points="4 20 4 22 8.586 22 2 28.586 3.414 30 10 23.414 10 28 12 28 12 20 4 20"/>
               <rect x="24.0001" y="21" width="2" height="5"/>
@@ -236,7 +236,7 @@ export default function Dashboard() {
           </button>
           <button
             onClick={() => navigate('/settings')}
-            className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-2"
+            className="px-2 py-2 md:px-4 text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-1.5 md:gap-2 text-sm md:text-base"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -246,7 +246,7 @@ export default function Dashboard() {
           </button>
         </nav>
 
-        <div className="flex items-center gap-3 text-gray-700">
+        <div className="flex items-center gap-2 md:gap-3 text-gray-700 order-2 md:order-3 shrink-0 ml-auto md:ml-0">
           <div className="flex items-center gap-2 px-2 py-1 rounded-full bg-gray-50 border border-gray-200">
             <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -258,7 +258,7 @@ export default function Dashboard() {
                 />
               </svg>
             </div>
-            <span className="font-medium text-sm">{user?.username ?? 'User'}</span>
+            <span className="font-medium text-sm max-w-[8rem] md:max-w-none truncate">{user?.username ?? 'User'}</span>
           </div>
           <button
             onClick={() => logout()}
@@ -278,8 +278,8 @@ export default function Dashboard() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 bg-gray-50 overflow-y-auto">
-        <div className="max-w-6xl mx-auto px-4 py-6 space-y-6">
+      <main className="flex-1 bg-gray-50 overflow-y-auto min-h-0">
+        <div className="max-w-6xl mx-auto px-3 py-4 md:px-4 md:py-6 space-y-6">
 
           {error && (
             <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
@@ -341,22 +341,26 @@ export default function Dashboard() {
                         {recentDaily.map((d) => {
                           const sentences = d.total_sentences_practiced || 0
                           const barHeight = (sentences / maxDailySentences) * 100
+                          const h = Math.max(barHeight, sentences > 0 ? 2 : 0)
                           return (
                             <div
                               key={d.date}
                               className="flex-1 flex flex-col items-center justify-end gap-1"
                             >
-                              <div className="w-full h-24 flex items-end">
+                              <div className="relative w-full h-24">
                                 <div
-                                  className="w-full bg-indigo-100 rounded-t-md"
-                                  style={{ height: `${barHeight || 2}%` }}
+                                  className="absolute bottom-0 left-0 right-0 w-full bg-indigo-100 rounded-t-md min-h-[2px]"
+                                  style={{ height: `${h}%` }}
                                 />
-                              </div>
-                              <span className="mt-1.5 text-[10px] text-gray-500 text-center leading-tight">
-                                {d.date.slice(5)}
-                                <span className="block text-gray-800 font-medium mt-0.5">
+                                <span
+                                  className="absolute left-1/2 -translate-x-1/2 text-[10px] font-semibold text-gray-800 tabular-nums whitespace-nowrap leading-none"
+                                  style={{ bottom: `calc(${h}% + 4px)` }}
+                                >
                                   {sentences}
                                 </span>
+                              </div>
+                              <span className="mt-1 text-[10px] text-gray-500 text-center leading-tight">
+                                {d.date.slice(5)}
                               </span>
                             </div>
                           )
@@ -392,28 +396,43 @@ export default function Dashboard() {
                               (incorrectPct / (maxDailyErrorHintPct || 1)) * 100
                             const hintHeight =
                               (hintPct / (maxDailyErrorHintPct || 1)) * 100
+                            const ih = Math.max(incorrectHeight, incorrectPct > 0 ? 1 : 0)
+                            const hh = Math.max(hintHeight, hintPct > 0 ? 1 : 0)
                             return (
                               <div
                                 key={d.date + '-pct'}
                                 className="flex-1 flex flex-col items-center justify-end gap-1"
                               >
-                                <div className="w-full h-24 flex items-end gap-[2px]">
-                                  <div
-                                    className="flex-1 bg-rose-200 rounded-t-sm"
-                                    style={{ height: `${incorrectHeight || 0}%` }}
-                                    title={`Retries: ${incorrectPct.toFixed(1)}%`}
-                                  />
-                                  <div
-                                    className="flex-1 bg-amber-200 rounded-t-sm"
-                                    style={{ height: `${hintHeight || 0}%` }}
-                                    title={`Hints: ${hintPct.toFixed(1)}%`}
-                                  />
+                                <div className="w-full h-24 flex gap-[2px]">
+                                  <div className="relative flex-1 h-full">
+                                    <div
+                                      className="absolute bottom-0 left-0 right-0 bg-rose-200 rounded-t-sm min-h-[1px]"
+                                      style={{ height: `${ih}%` }}
+                                      title={`Retries: ${incorrectPct.toFixed(1)}%`}
+                                    />
+                                    <span
+                                      className="absolute left-1/2 -translate-x-1/2 text-[8px] font-semibold text-rose-800 tabular-nums whitespace-nowrap leading-none"
+                                      style={{ bottom: `calc(${ih}% + 2px)` }}
+                                    >
+                                      {incorrectPct.toFixed(0)}%
+                                    </span>
+                                  </div>
+                                  <div className="relative flex-1 h-full">
+                                    <div
+                                      className="absolute bottom-0 left-0 right-0 bg-amber-200 rounded-t-sm min-h-[1px]"
+                                      style={{ height: `${hh}%` }}
+                                      title={`Hints: ${hintPct.toFixed(1)}%`}
+                                    />
+                                    <span
+                                      className="absolute left-1/2 -translate-x-1/2 text-[8px] font-semibold text-amber-900 tabular-nums whitespace-nowrap leading-none"
+                                      style={{ bottom: `calc(${hh}% + 2px)` }}
+                                    >
+                                      {hintPct.toFixed(0)}%
+                                    </span>
+                                  </div>
                                 </div>
                                 <span className="mt-1 text-[9px] text-gray-500 text-center leading-tight">
                                   {d.date.slice(5)}
-                                  <span className="block text-[9px] text-gray-600">
-                                    {incorrectPct.toFixed(1)}% / {hintPct.toFixed(1)}%
-                                  </span>
                                 </span>
                               </div>
                             )
@@ -590,7 +609,7 @@ export default function Dashboard() {
           aria-labelledby="coach-modal-title"
         >
           <div
-            className="bg-white rounded-xl shadow-xl w-2/3 max-w-3xl max-h-[85vh] overflow-hidden flex flex-col"
+            className="bg-white rounded-xl shadow-xl w-full max-w-3xl md:w-2/3 max-h-[85vh] overflow-hidden flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-4 border-b border-gray-200 flex items-center justify-between">

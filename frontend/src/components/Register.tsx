@@ -45,8 +45,8 @@ export default function Register() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="w-full max-w-sm p-6 bg-white rounded-xl shadow-md border border-gray-200">
+    <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4 py-6">
+      <div className="w-full max-w-sm p-5 sm:p-6 bg-white rounded-xl shadow-md border border-gray-200">
         <div className="flex justify-center mb-6">
           <img src="/icon.png" alt="Ear2Finger" className="w-12 h-12" />
         </div>

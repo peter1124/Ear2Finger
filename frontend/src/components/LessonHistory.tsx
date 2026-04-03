@@ -94,9 +94,9 @@ export default function LessonHistory({ videoId, onResume, isLessonFinished }: L
   }
 
   return (
-    <div className="fixed bottom-8 right-4 z-40 flex flex-col items-end space-y-2">
+    <div className="fixed bottom-6 right-3 left-3 md:left-auto md:bottom-8 md:right-4 z-40 flex flex-col items-stretch md:items-end space-y-2">
       {coachOpen && (
-        <div className="w-80 max-h-[60vh] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl flex flex-col">
+        <div className="w-full max-w-sm md:w-80 max-h-[60vh] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl flex flex-col">
           <div className="px-3 py-2 border-b border-gray-200 flex items-center justify-between">
             <div className="min-w-0">
               <h2 className="text-sm font-semibold text-gray-900 truncate">Ask coach about session</h2>
@@ -168,12 +168,12 @@ export default function LessonHistory({ videoId, onResume, isLessonFinished }: L
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="rounded-lg bg-gray-800 text-white px-3 py-2 text-sm shadow-lg hover:bg-gray-700"
+        className="rounded-lg bg-gray-800 text-white px-3 py-2 text-sm shadow-lg hover:bg-gray-700 self-end md:self-auto"
       >
         {open ? 'Hide History' : 'Lesson History'}
       </button>
       {open && (
-        <div className="mt-1 w-80 max-h-[min(60vh,400px)] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl flex flex-col">
+        <div className="mt-1 w-full max-w-sm md:w-80 max-h-[min(60vh,400px)] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl flex flex-col">
           <div className="p-2 border-b border-gray-200 font-medium text-gray-900 text-sm shrink-0">
             Lesson history
           </div>

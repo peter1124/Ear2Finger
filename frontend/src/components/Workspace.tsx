@@ -110,6 +110,7 @@ export default function Workspace() {
   const [coachShownForVideoId, setCoachShownForVideoId] = useState<number | null>(null)
   const [lessonMenuOpen, setLessonMenuOpen] = useState<number | null>(null)
   const [playlistMenuOpen, setPlaylistMenuOpen] = useState(false)
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [lessonProgress, setLessonProgress] = useState<Record<number, number>>({})
   const [lastInputFeedback, setLastInputFeedback] = useState<{
     wordIndex: number
@@ -129,6 +130,15 @@ export default function Workspace() {
     window.addEventListener('click', onClose)
     return () => window.removeEventListener('click', onClose)
   }, [playlistMenuOpen])
+
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)')
+    const onChange = () => {
+      if (mq.matches) setMobileSidebarOpen(false)
+    }
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
 
   // Clear input feedback after animation so it can replay on next keystroke
   useEffect(() => {
@@ -430,6 +440,7 @@ export default function Workspace() {
 
   const handleLessonSelect = async (lesson: Lesson) => {
     setLessonMenuOpen(null)
+    setMobileSidebarOpen(false)
     if (
       selectedLesson &&
       lesson.video_id !== selectedLesson.video_id &&
@@ -880,6 +891,71 @@ export default function Workspace() {
     currentSentenceIndex >= sentences.length - 1 &&
     Boolean(isCurrentSentenceFullyCorrect)
 
+  const focusNextInputableWord = (words: string[], fromIdx: number) => {
+    let nextIndex = fromIdx + 1
+    while (nextIndex < words.length && isPunctuationOnlyToken(words[nextIndex])) {
+      nextIndex++
+    }
+    if (nextIndex < words.length) {
+      wordInputRefs.current[nextIndex]?.focus()
+    }
+  }
+
+  const handleMobileHintClick = () => {
+    if (!currentSentence || isCurrentSentenceFullyCorrect) return
+    const words = currentSentence.sentence_text.split(/\s+/).filter(Boolean)
+
+    let focusedIdx: number | null = null
+    for (let idx = 0; idx < words.length; idx++) {
+      const el = wordInputRefs.current[idx]
+      if (el && document.activeElement === el) {
+        focusedIdx = idx
+        break
+      }
+    }
+
+    let targetIdx: number | null = focusedIdx
+    if (targetIdx === null) {
+      for (let idx = 0; idx < words.length; idx++) {
+        if (isPunctuationOnlyToken(words[idx])) continue
+        const w = words[idx]
+        const currentVal = wordInputs[idx] ?? ''
+        const wordComplete = normalizeWord(currentVal) === normalizeWord(w)
+        if (!wordComplete) {
+          targetIdx = idx
+          break
+        }
+      }
+    }
+
+    if (targetIdx === null) return
+    const word = words[targetIdx]
+    if (isPunctuationOnlyToken(word)) return
+
+    if (wordHintIndex === targetIdx) {
+      setWordHintIndex(null)
+      focusNextInputableWord(words, targetIdx)
+      return
+    }
+
+    const currentVal = wordInputs[targetIdx] ?? ''
+    const wordComplete = normalizeWord(currentVal) === normalizeWord(word)
+    if (wordComplete) {
+      focusNextInputableWord(words, targetIdx)
+    } else {
+      const ti = targetIdx
+      setWordHintIndex(ti)
+      setVideoSessionScores((s) => ({ ...s, hintCount: s.hintCount + 1 }))
+      setWordHintUsed((prev) => {
+        const next = [...prev]
+        while (next.length <= ti) next.push(false)
+        next[ti] = true
+        return next
+      })
+      wordInputRefs.current[ti]?.focus()
+    }
+  }
+
   const loadCoachFeedbackForVideo = (videoId: number | null) => {
     if (!videoId) return
     setCoachLoading(true)
@@ -1080,16 +1156,16 @@ export default function Workspace() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-white">
+    <div className="h-screen min-h-0 flex flex-col bg-white">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+      <header className="bg-white border-b border-gray-200 px-3 py-2 md:px-4 md:py-3 flex flex-wrap items-center justify-between gap-y-2 gap-x-2 md:flex-nowrap md:gap-0">
+        <div className="flex items-center gap-2 order-1 shrink-0">
           <img src="/icon.png" alt="Ear2Finger" className="w-8 h-8" />
           <span className="text-lg font-semibold text-gray-900">Ear2Finger</span>
         </div>
 
-        <nav className="flex items-center gap-1">
-          <button className="px-4 py-2 bg-gray-900 text-white rounded-lg flex items-center gap-2">
+        <nav className="order-3 basis-full flex flex-wrap items-center gap-1 md:order-2 md:basis-auto md:flex-nowrap">
+          <button className="px-2 py-2 md:px-4 bg-gray-900 text-white rounded-lg flex items-center gap-1.5 md:gap-2 text-sm md:text-base">
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 511.999 511.999">
               <path d="M480.276,62.526H156.574c-17.493,0-31.725,14.231-31.725,31.725v28.232l-30.679-30.68l-51.975,51.975l23.592,23.592
                 L0,270.705l66.804,104.419H41.579c-19.579,0-35.507,15.928-35.507,35.507v38.84h177.005v-38.84
@@ -1131,7 +1207,7 @@ export default function Workspace() {
           </button>
           <button
             onClick={() => navigate('/dashboard')}
-            className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-2"
+            className="px-2 py-2 md:px-4 text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-1.5 md:gap-2 text-sm md:text-base"
           >
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 32 32">
               <polygon points="4 20 4 22 8.586 22 2 28.586 3.414 30 10 23.414 10 28 12 28 12 20 4 20"/>
@@ -1144,7 +1220,7 @@ export default function Workspace() {
           </button>
           <button
             onClick={() => navigate('/settings')}
-            className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-2"
+            className="px-2 py-2 md:px-4 text-gray-600 hover:bg-gray-100 rounded-lg flex items-center gap-1.5 md:gap-2 text-sm md:text-base"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -1154,7 +1230,7 @@ export default function Workspace() {
           </button>
         </nav>
 
-        <div className="flex items-center gap-3 text-gray-700">
+        <div className="flex items-center gap-2 md:gap-3 text-gray-700 order-2 md:order-3 shrink-0 ml-auto md:ml-0">
           <div className="flex items-center gap-2 px-2 py-1 rounded-full bg-gray-50 border border-gray-200">
             <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1166,7 +1242,7 @@ export default function Workspace() {
                 />
               </svg>
             </div>
-            <span className="font-medium text-sm">{user?.username ?? 'User'}</span>
+            <span className="font-medium text-sm max-w-[8rem] md:max-w-none truncate">{user?.username ?? 'User'}</span>
           </div>
           <button
             onClick={() => logout()}
@@ -1185,9 +1261,23 @@ export default function Workspace() {
         </div>
       </header>
 
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex flex-col md:flex-row overflow-hidden min-h-0">
         {/* Left Sidebar */}
-        <aside className="w-80 bg-gray-50 border-r border-gray-200 flex flex-col">
+        <aside
+          id="workspace-lessons-sidebar"
+          className={`w-full md:w-80 shrink-0 max-md:max-h-[min(55vh,440px)] md:max-h-none bg-gray-50 border-gray-200 border-b md:border-b-0 md:border-r flex flex-col min-h-0 ${
+            !mobileSidebarOpen ? 'max-md:hidden' : ''
+          }`}
+        >
+          <div className="md:hidden flex justify-end border-b border-gray-200 px-3 py-1.5 bg-gray-50">
+            <button
+              type="button"
+              onClick={() => setMobileSidebarOpen(false)}
+              className="text-sm font-medium text-indigo-700 hover:text-indigo-900 py-1 px-2 rounded-md hover:bg-indigo-50"
+            >
+              Done
+            </button>
+          </div>
           <div className="p-4 border-b border-gray-200">
             <div className="flex items-center gap-1">
               <div className="relative flex-1 min-w-0">
@@ -1403,11 +1493,25 @@ export default function Workspace() {
         {/* Main Content */}
         <main className="flex-1 flex flex-col overflow-hidden">
           {/* Top Panel */}
-          <div className="p-4 border-b border-gray-200 bg-white">
-            <div className="mb-4">
-              <h1 className="text-xl font-semibold text-gray-900">
+          <div className="p-3 md:p-4 border-b border-gray-200 bg-white">
+            {!mobileSidebarOpen && (
+              <div className="mb-3 md:hidden">
+                <button
+                  type="button"
+                  onClick={() => setMobileSidebarOpen(true)}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2.5 text-sm font-medium text-indigo-900 hover:bg-indigo-100"
+                  aria-controls="workspace-lessons-sidebar"
+                >
+                  <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h10" />
+                  </svg>
+                  Open lessons & playlists
+                </button>
+              </div>
+            )}
+            <div className="mb-3 md:mb-4 text-center">
+              <h1 className="text-lg md:text-xl font-semibold text-gray-900 text-center line-clamp-2">
                 {selectedLesson?.title || 'Select a lesson'}
-                {selectedLesson && <span className="text-gray-500 ml-2 text-base"></span>}
               </h1>
             </div>
 
@@ -1431,9 +1535,9 @@ export default function Workspace() {
               />
             )}
 
-            <div className="flex items-center gap-4 mb-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-4 mb-3 md:mb-4">
               {/* Media Player */}
-              <div className="flex-1 flex items-center gap-2">
+              <div className="flex-1 flex items-center gap-2 min-w-0 w-full">
                 <button
                   onClick={() => {
                     if (currentSentenceIndex > 0) {
@@ -1536,7 +1640,7 @@ export default function Workspace() {
             </div>
 
             {/* Controls */}
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2 md:gap-3">
               <div className="relative group">
                 <div className="bg-gray-900 text-white px-3 py-1.5 rounded-lg flex items-center gap-2 text-xs cursor-pointer">
                   <span>Speed: {playbackSpeed}x</span>
@@ -1657,7 +1761,7 @@ export default function Workspace() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 ml-auto">
+              <div className="flex flex-wrap items-center gap-2 w-full md:w-auto md:ml-auto justify-end">
                 <div className="flex items-center gap-1" title="Correct keystrokes in this video">
                   <div className="w-3 h-3 bg-green-500 rounded-full" />
                   <span className="text-sm text-gray-700">{videoSessionScores.correctChars}</span>
@@ -1684,24 +1788,43 @@ export default function Workspace() {
           </div>
 
           {/* Text Input Panel - Per-word input */}
-          <div className="flex-1 p-4 overflow-y-auto bg-white">
+          <div className="flex-1 p-3 md:p-4 overflow-y-auto bg-white min-h-0">
             {currentSentence ? (() => {
               const words = currentSentence.sentence_text.split(/\s+/).filter(Boolean)
               return (
-                <div className="max-w-4xl mx-auto">
-                  <div className="h-8 flex items-center mt-3 mb-1">
+                <div className="max-w-4xl mx-auto w-full min-w-0">
+                  <div className="h-6 md:h-8 flex items-center mt-1 mb-0 md:mt-3 md:mb-1">
                     <p
-                      className={`inline-flex items-center gap-1 text-xl font-semibold transition-opacity ${
+                      className={`inline-flex items-center gap-1 text-lg md:text-xl font-semibold transition-opacity ${
                         isCurrentSentenceFullyCorrect
                           ? 'text-green-600 opacity-100'
                           : 'text-transparent opacity-0'
                       }`}
                     >
-                      <span className="text-xl">✔</span>
+                      <span className="text-lg md:text-xl">✔</span>
                       <span>Correct</span>
                     </p>
                   </div>
-                  <div className="text-xl leading-relaxed text-gray-900 flex flex-wrap items-baseline gap-x-2 gap-y-3">
+                  <div className="-mt-1 mb-3 md:hidden">
+                    <button
+                      type="button"
+                      onClick={handleMobileHintClick}
+                      disabled={Boolean(isCurrentSentenceFullyCorrect)}
+                      title="Reveal the current word (same as Tab)"
+                      className="inline-flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100 disabled:pointer-events-none disabled:opacity-40"
+                    >
+                      <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+                        />
+                      </svg>
+                      Hint
+                    </button>
+                  </div>
+                  <div className="text-lg md:text-xl leading-relaxed text-gray-900 flex flex-wrap items-baseline gap-x-1.5 gap-y-2 md:gap-x-2 md:gap-y-3">
                     {words.map((word, idx) => {
                       if (isPunctuationOnlyToken(word)) {
                         return (
@@ -1854,7 +1977,10 @@ export default function Workspace() {
                                   ? 'input-feedback-wrong'
                                   : ''
                             }`}
-                            style={{ maxWidth: `${Math.max(2, word.length*1.2)}ch`, fontSize: '1.8em' }}
+                            style={{
+                              maxWidth: `${Math.max(2, word.length * 1.2)}ch`,
+                              fontSize: 'clamp(1.05rem, 4.2vw, 2.25rem)',
+                            }}
                             aria-label={`Word ${idx + 1}`}
                             autoComplete="off"
                             spellCheck={false}
@@ -1876,8 +2002,8 @@ export default function Workspace() {
       </div>
 
       {/* Bottom bar: import progress + shortcuts */}
-      <footer className="flex-shrink-0 border-t border-gray-200 bg-gray-50 px-4 py-1.5 flex items-center justify-between gap-6 text-xs text-gray-600">
-        <div className="flex-1 min-w-0 pr-4">
+      <footer className="flex-shrink-0 border-t border-gray-200 bg-gray-50 px-3 md:px-4 py-2 md:py-1.5 flex flex-col gap-2 md:flex-row md:items-center md:justify-between md:gap-6 text-xs text-gray-600">
+        <div className="flex-1 min-w-0 md:pr-4">
           {isImportInProgress && (
             <div className="flex items-center gap-3">
               <span className="whitespace-nowrap text-indigo-800">Importing lesson…</span>
@@ -1890,7 +2016,7 @@ export default function Workspace() {
             </div>
           )}
         </div>
-        <div className="flex items-center gap-4 flex-wrap justify-end">
+        <div className="flex items-center gap-2 md:gap-4 flex-wrap justify-start md:justify-end">
           <span><kbd className="px-1.5 py-0.5 bg-white border border-gray-300 rounded font-mono">Enter</kbd> play / pause</span>
           <span><kbd className="px-1.5 py-0.5 bg-white border border-gray-300 rounded font-mono">[</kbd> previous sentence</span>
           <span><kbd className="px-1.5 py-0.5 bg-white border border-gray-300 rounded font-mono">]</kbd> next sentence</span>
@@ -1914,11 +2040,11 @@ export default function Workspace() {
       />
 
       {/* Notifications */}
-      <div className="fixed top-4 right-4 z-[60] space-y-2">
+      <div className="fixed top-3 right-3 left-3 md:left-auto md:top-4 md:right-4 z-[60] space-y-2 max-md:max-w-none">
         {notifications.map((note) => (
           <div
             key={note.id}
-            className={`min-w-[260px] rounded-lg shadow-lg border px-4 py-3 text-sm font-medium ${
+            className={`w-full md:min-w-[260px] md:w-auto rounded-lg shadow-lg border px-4 py-3 text-sm font-medium ${
               note.type === 'success'
                 ? 'bg-green-50 text-green-800 border-green-200'
                 : note.type === 'error'
@@ -1934,7 +2060,7 @@ export default function Workspace() {
 
       {/* AI Coach side panel */}
       {coachPanelOpen && (
-        <div className="fixed right-4 bottom-24 z-50 w-[26rem] max-h-[60vh] rounded-lg border border-gray-200 bg-white shadow-xl flex flex-col text-left">
+        <div className="fixed inset-x-3 bottom-20 md:inset-x-auto md:right-4 md:bottom-24 z-50 w-auto md:w-[26rem] max-h-[min(55vh,480px)] md:max-h-[60vh] rounded-lg border border-gray-200 bg-white shadow-xl flex flex-col text-left">
           <div className="px-3 py-2 border-b border-gray-200 flex items-center justify-between">
             <div>
               <h2 className="text-sm font-semibold text-gray-900">Session recap by AI coach</h2>
