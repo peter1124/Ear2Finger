@@ -470,7 +470,7 @@ export default function Dashboard() {
                             href={ch.href}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 rounded-full border border-red-500/20 bg-red-50 px-2.5 py-0.5 text-[10px] font-medium text-red-700 hover:bg-red-100"
+                            className="inline-flex items-center gap-1.5 rounded-full border border-violet-300/40 bg-violet-50 px-2.5 py-0.5 text-[10px] font-medium text-violet-800 hover:bg-violet-100"
                           >
                             <svg
                               className="w-3 h-3"

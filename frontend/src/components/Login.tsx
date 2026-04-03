@@ -37,8 +37,9 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100">
       <div className="w-full max-w-sm p-6 bg-white rounded-xl shadow-md border border-gray-200">
-        <div className="flex justify-center mb-6">
-          <img src="/icon.png" alt="Ear2Finger" className="w-12 h-12" />
+        <div className="flex justify-center items-center gap-4 mb-6">
+          <img src="/icon.png" alt="" className="w-20 h-20 shrink-0" aria-hidden />
+          <span className="text-3xl font-semibold text-gray-900 tracking-tight">Ear2Finger</span>
         </div>
         <h1 className="text-xl font-bold text-center text-gray-900 mb-6">Sign in</h1>
         <form onSubmit={handleSubmit} className="space-y-4">
