@@ -17,10 +17,13 @@ export default defineConfig({
     __APP_COMMIT__: JSON.stringify(gitCommit),
   },
   server: {
+    // Bind IPv4 explicitly: Windows often serves "localhost" on ::1 only, while
+    // scripts/electron-dev.mjs and Electron use 127.0.0.1 — mismatched stacks time out.
+    host: '127.0.0.1',
     port: 3000,
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
     },

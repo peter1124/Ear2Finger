@@ -7,6 +7,9 @@ import { spawn, execFileSync } from 'child_process'
 import fs from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import { createRequire } from 'module'
+
+const require = createRequire(import.meta.url)
 import http from 'http'
 import net from 'net'
 
@@ -150,10 +153,19 @@ async function main() {
 
   await waitPort('127.0.0.1', 3000, 120000)
 
-  const electronBin = path.join(ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'electron.cmd' : 'electron')
+  /** Real electron.exe / Electron.app binary — avoids Windows cmd + `.bin/electron.cmd` path/quoting bugs. */
+  let electronExe
+  try {
+    electronExe = require('electron')
+  } catch {
+    electronExe = null
+  }
+  if (typeof electronExe !== 'string' || !fs.existsSync(electronExe)) {
+    throw new Error('Electron not found. From the repo root run: npm install')
+  }
   const electronArgs =
     process.platform === 'linux' ? ['--no-sandbox', '--disable-setuid-sandbox', '.'] : ['.']
-  const el = spawn(electronBin, electronArgs, {
+  const el = spawn(electronExe, electronArgs, {
     cwd: ROOT,
     stdio: 'inherit',
     env: {
@@ -162,7 +174,7 @@ async function main() {
       ELECTRON_SKIP_QDRANT: '1',
       ELECTRON_DEV_URL: 'http://127.0.0.1:3000',
     },
-    shell: process.platform === 'win32',
+    shell: false,
   })
   children.push(el)
 

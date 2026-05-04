@@ -1,6 +1,7 @@
 import yt_dlp
 import re
 import subprocess
+import sys
 import tempfile
 import shutil
 from typing import List, Dict, Optional
@@ -24,6 +25,11 @@ class YouTubeProcessor:
         )
         os.makedirs(self.download_dir, exist_ok=True)
         os.makedirs(self.audio_dir, exist_ok=True)
+
+    @staticmethod
+    def _yt_dlp_cli():
+        """Same interpreter + yt-dlp as `import yt_dlp` (Windows often has an older `yt-dlp` earlier on PATH)."""
+        return [sys.executable, '-m', 'yt_dlp']
 
     def extract_video_info(self, youtube_url: str, video_id: str = None) -> Dict:
         """Extract video information, subtitles, and download MP3 audio using yt-dlp"""
@@ -53,8 +59,7 @@ class YouTubeProcessor:
                     try:
                         # Method 1: Try manual subtitles first
                         # Command: yt-dlp --write-subs --sub-lang en --sub-format srt --convert-subs srt --skip-download <URL>
-                        cmd_manual = [
-                            'yt-dlp',
+                        cmd_manual = self._yt_dlp_cli() + [
                             '--no-playlist',
                             '--write-subs',
                             '--sub-lang', 'en',
@@ -90,8 +95,7 @@ class YouTubeProcessor:
                         # Method 2: If manual subtitles failed, try auto-generated subtitles
                         # Command: yt-dlp --write-auto-subs --sub-lang en --sub-format srt --convert-subs srt --skip-download <URL>
                         if not subtitles_data:
-                            cmd_auto = [
-                                'yt-dlp',
+                            cmd_auto = self._yt_dlp_cli() + [
                                 '--no-playlist',
                                 '--write-auto-subs',
                                 '--sub-lang', 'en',
@@ -142,14 +146,13 @@ class YouTubeProcessor:
                         # -x: extract audio only
                         # --audio-format mp3: convert to MP3 format
                         temp_output = os.path.join(self.audio_dir, f'{video_id}_temp.%(ext)s')
-                        cmd = [
-                            'yt-dlp',
+                        cmd = self._yt_dlp_cli() + [
                             '--no-playlist',
                             '-x',  # Extract audio only
                             '--audio-format', 'mp3',
                             '--output', temp_output,
                             '--quiet',
-                            youtube_url
+                            youtube_url,
                         ]
 
                         result = subprocess.run(
