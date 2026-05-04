@@ -20,7 +20,7 @@ import {
 
 type SettingsSection = 'ai-api-key' | 'about' | 'users'
 
-const APP_VERSION = `1.0.0 (${__APP_COMMIT__})`
+const APP_VERSION = `1.0.2 (${__APP_COMMIT__})`
 
 export default function Settings() {
   const navigate = useNavigate()

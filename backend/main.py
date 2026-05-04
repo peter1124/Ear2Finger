@@ -22,7 +22,7 @@ from database import init_db
 app = FastAPI(
     title="Ear2Finger API",
     description="API for English listening and dictation practice",
-    version="1.0.0"
+    version="1.0.2"
 )
 
 # Initialize database on startup

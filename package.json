@@ -1,6 +1,6 @@
 {
   "name": "ear2finger",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "private": true,
   "author": "Ear2Finger",
   "description": "Ear2Finger desktop: Electron UI + PyInstaller-bundled FastAPI backend + embedded Qdrant (qdrant-client local). Build: npm run electron:build:backend && npm run electron:pack.",
