@@ -48,14 +48,19 @@
   animation: wrongShake 0.45s ease-out, wrongFlash 0.5s ease-out;
 }
 
+/*
+ * App UI is light-themed (Tailwind grays / white). Default :root must use dark text so
+ * inherited color stays readable on bg-white when the OS prefers dark mode — otherwise
+ * the old Vite template (light text on #242424) made dropdowns and panels invisible.
+ */
 :root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+  color-scheme: light;
+  color: #213547;
+  background-color: #ffffff;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -94,9 +99,3 @@ body {
   text-align: center;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-}

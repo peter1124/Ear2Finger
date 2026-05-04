@@ -1648,12 +1648,12 @@ export default function Workspace() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </div>
-                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 min-w-[120px]">
+                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg text-gray-900 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 min-w-[120px]">
                   {[0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map((speed) => (
                     <button
                       key={speed}
                       onClick={() => setPlaybackSpeed(speed)}
-                      className={`w-full text-left px-4 py-2 text-xs hover:bg-gray-100 ${
+                      className={`w-full text-left px-4 py-2 text-xs text-gray-900 hover:bg-gray-100 ${
                         playbackSpeed === speed ? 'bg-gray-100 font-semibold' : ''
                       }`}
                     >
@@ -1669,12 +1669,12 @@ export default function Workspace() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </div>
-                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 min-w-[100px]">
+                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg text-gray-900 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 min-w-[100px]">
                   {([0, 1, 3, 5, 10, '∞'] as const).map((count) => (
                     <button
                       key={String(count)}
                       onClick={() => setRepeatCount(count === '∞' ? '∞' : count)}
-                      className={`w-full text-left px-4 py-2 text-xs hover:bg-gray-100 ${
+                      className={`w-full text-left px-4 py-2 text-xs text-gray-900 hover:bg-gray-100 ${
                         repeatCount === count ? 'bg-gray-100 font-semibold' : ''
                       }`}
                     >
@@ -1690,7 +1690,7 @@ export default function Workspace() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </div>
-                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 min-w-[120px]">
+                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg text-gray-900 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 min-w-[120px]">
                   {[0, 3, 5, 10].map((sec) => (
                     <button
                       key={sec}
@@ -1699,7 +1699,7 @@ export default function Workspace() {
                         e.preventDefault()
                         setPauseInterval(sec)
                       }}
-                      className={`w-full text-left px-4 py-2 text-xs hover:bg-gray-100 ${
+                      className={`w-full text-left px-4 py-2 text-xs text-gray-900 hover:bg-gray-100 ${
                         pauseInterval === sec ? 'bg-gray-100 font-semibold' : ''
                       }`}
                     >
@@ -1715,10 +1715,10 @@ export default function Workspace() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </div>
-                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 min-w-[100px]">
+                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg text-gray-900 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 min-w-[100px]">
                   <button
                     onClick={() => setIgnorePunctuation(true)}
-                    className={`w-full text-left px-4 py-2 text-xs hover:bg-gray-100 ${
+                    className={`w-full text-left px-4 py-2 text-xs text-gray-900 hover:bg-gray-100 ${
                       ignorePunctuation ? 'bg-gray-100 font-semibold' : ''
                     }`}
                   >
@@ -1726,7 +1726,7 @@ export default function Workspace() {
                   </button>
                   <button
                     onClick={() => setIgnorePunctuation(false)}
-                    className={`w-full text-left px-4 py-2 text-xs hover:bg-gray-100 ${
+                    className={`w-full text-left px-4 py-2 text-xs text-gray-900 hover:bg-gray-100 ${
                       !ignorePunctuation ? 'bg-gray-100 font-semibold' : ''
                     }`}
                   >
@@ -1741,10 +1741,10 @@ export default function Workspace() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </div>
-                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 min-w-[100px]">
+                <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg text-gray-900 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all z-10 min-w-[100px]">
                   <button
                     onClick={() => setIgnoreCase(true)}
-                    className={`w-full text-left px-4 py-2 text-xs hover:bg-gray-100 ${
+                    className={`w-full text-left px-4 py-2 text-xs text-gray-900 hover:bg-gray-100 ${
                       ignoreCase ? 'bg-gray-100 font-semibold' : ''
                     }`}
                   >
@@ -1752,7 +1752,7 @@ export default function Workspace() {
                   </button>
                   <button
                     onClick={() => setIgnoreCase(false)}
-                    className={`w-full text-left px-4 py-2 text-xs hover:bg-gray-100 ${
+                    className={`w-full text-left px-4 py-2 text-xs text-gray-900 hover:bg-gray-100 ${
                       !ignoreCase ? 'bg-gray-100 font-semibold' : ''
                     }`}
                   >
@@ -2021,6 +2021,9 @@ export default function Workspace() {
           <span><kbd className="px-1.5 py-0.5 bg-white border border-gray-300 rounded font-mono">[</kbd> previous sentence</span>
           <span><kbd className="px-1.5 py-0.5 bg-white border border-gray-300 rounded font-mono">]</kbd> next sentence</span>
           <span><kbd className="px-1.5 py-0.5 bg-white border border-gray-300 rounded font-mono">Space</kbd> next word input</span>
+          <span>
+            <kbd className="px-1.5 py-0.5 bg-white border border-gray-300 rounded font-mono">Tab</kbd> reveal / hide word hint
+          </span>
         </div>
       </footer>
 
