@@ -1,13 +1,15 @@
 """
 Qdrant vector store client, collection schemas, and ingestion helpers for the AI coach.
 
-Deployment: supports both self-hosted (default http://localhost:6333, no API key)
-and Qdrant Cloud (set QDRANT_URL and QDRANT_API_KEY in environment).
+Deployment: embedded local storage (QDRANT_LOCAL_PATH), self-hosted HTTP
+(QDRANT_URL), or Qdrant Cloud (QDRANT_URL + QDRANT_API_KEY).
 """
 from __future__ import annotations
 
 import json
 import logging
+import threading
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from uuid import NAMESPACE_URL, uuid5
@@ -23,7 +25,7 @@ from qdrant_client.models import (
 )
 from sqlalchemy.orm import Session
 
-from config import QDRANT_API_KEY, QDRANT_URL, QDRANT_VECTOR_SIZE
+from config import QDRANT_API_KEY, QDRANT_LOCAL_PATH, QDRANT_URL, QDRANT_VECTOR_SIZE
 from database import (
     LessonSession,
     LearningProgress,
@@ -77,7 +79,9 @@ COLLECTION_SENTENCES = "sentences"
 
 
 def _make_client() -> QdrantClient:
-    """Build QdrantClient from config."""
+    """Build QdrantClient from config (embedded path, or HTTP server / Qdrant Cloud)."""
+    if QDRANT_LOCAL_PATH:
+        return QdrantClient(path=QDRANT_LOCAL_PATH)
     kwargs: dict[str, Any] = {"url": QDRANT_URL}
     if QDRANT_API_KEY:
         kwargs["api_key"] = QDRANT_API_KEY
@@ -85,14 +89,30 @@ def _make_client() -> QdrantClient:
 
 
 _client: Optional[QdrantClient] = None
+_client_lock = threading.Lock()
+# Embedded Qdrant uses SQLite under the hood; concurrent upserts/search from FastAPI
+# BackgroundTasks cause "cannot commit - no transaction is active". Serialize locally.
+_local_qdrant_rlock = threading.RLock()
+
+
+@contextmanager
+def _embedded_qdrant_lock():
+    if QDRANT_LOCAL_PATH:
+        with _local_qdrant_rlock:
+            yield
+    else:
+        yield
 
 
 def get_qdrant_client() -> QdrantClient:
     """Return a shared Qdrant client instance."""
     global _client
-    if _client is None:
-        _client = _make_client()
-    return _client
+    if _client is not None:
+        return _client
+    with _client_lock:
+        if _client is None:
+            _client = _make_client()
+        return _client
 
 
 def ensure_collections() -> None:
@@ -100,31 +120,37 @@ def ensure_collections() -> None:
     Create Qdrant collections if they do not exist.
     Uses config QDRANT_VECTOR_SIZE and Cosine distance.
     """
-    client = get_qdrant_client()
-    vec_config = VectorParams(size=QDRANT_VECTOR_SIZE, distance=Distance.COSINE)
+    with _embedded_qdrant_lock():
+        client = get_qdrant_client()
+        vec_config = VectorParams(size=QDRANT_VECTOR_SIZE, distance=Distance.COSINE)
 
-    if not client.collection_exists(COLLECTION_USER_LEARNING_EVENTS):
-        client.create_collection(
-            collection_name=COLLECTION_USER_LEARNING_EVENTS,
-            vectors_config=vec_config,
-        )
-        logger.info("Created Qdrant collection %s", COLLECTION_USER_LEARNING_EVENTS)
+        if not client.collection_exists(COLLECTION_USER_LEARNING_EVENTS):
+            client.create_collection(
+                collection_name=COLLECTION_USER_LEARNING_EVENTS,
+                vectors_config=vec_config,
+            )
+            logger.info("Created Qdrant collection %s", COLLECTION_USER_LEARNING_EVENTS)
 
-    if not client.collection_exists(COLLECTION_SENTENCES):
-        client.create_collection(
-            collection_name=COLLECTION_SENTENCES,
-            vectors_config=vec_config,
-        )
-        logger.info("Created Qdrant collection %s", COLLECTION_SENTENCES)
+        if not client.collection_exists(COLLECTION_SENTENCES):
+            client.create_collection(
+                collection_name=COLLECTION_SENTENCES,
+                vectors_config=vec_config,
+            )
+            logger.info("Created Qdrant collection %s", COLLECTION_SENTENCES)
 
 
 def close_qdrant_client() -> None:
     """Close the shared client (e.g. on app shutdown)."""
     global _client
-    if _client is not None:
-        _client.close()
-        _client = None
-        logger.debug("Closed Qdrant client")
+    with _embedded_qdrant_lock():
+        with _client_lock:
+            if _client is not None:
+                try:
+                    _client.close()
+                except Exception:  # pragma: no cover
+                    logger.debug("Qdrant client close raised", exc_info=True)
+                _client = None
+                logger.debug("Closed Qdrant client")
 
 
 # -----------------------------------------------------------------------------
@@ -134,7 +160,7 @@ def close_qdrant_client() -> None:
 
 def _embed_texts(db: Session, user_id: int, texts: Sequence[str]) -> List[List[float]]:
     """
-    Embed one or more texts using the shared HuggingFace embeddings model.
+    Embed one or more texts using the user's Gemini embedding API (same key as chat).
 
     Embeddings are provider-agnostic and do not require an API key; the user_id
     is used only for logging and future per-user overrides.
@@ -191,67 +217,68 @@ def search_sentences_by_queries(
     if not vectors:
         return []
 
-    ensure_collections()
-    client = get_qdrant_client()
+    with _embedded_qdrant_lock():
+        ensure_collections()
+        client = get_qdrant_client()
 
-    # Prefer the high-level `.search` API when available. If this client build
-    # does not support `.search`, we currently skip sentence recommendations
-    # rather than attempting to emulate search with matrix helpers whose
-    # contracts differ across versions.
-    has_search = hasattr(client, "search")
-    if not has_search:
-        logger.warning(
-            "qdrant: QdrantClient.search is not available; "
-            "skipping sentence-based practice recommendations."
-        )
-        return []
-
-    hits: List[Dict[str, Any]] = []
-
-    for query, vector in zip(clean_queries, vectors):
-        conditions = [
-            FieldCondition(key="user_id", match=MatchValue(value=user_id)),
-        ]
-        if video_id is not None:
-            conditions.append(
-                FieldCondition(key="video_id", match=MatchValue(value=video_id))
+        # Prefer the high-level `.search` API when available. If this client build
+        # does not support `.search`, we currently skip sentence recommendations
+        # rather than attempting to emulate search with matrix helpers whose
+        # contracts differ across versions.
+        has_search = hasattr(client, "search")
+        if not has_search:
+            logger.warning(
+                "qdrant: QdrantClient.search is not available; "
+                "skipping sentence-based practice recommendations."
             )
+            return []
 
-        query_filter = Filter(must=conditions)
+        hits: List[Dict[str, Any]] = []
 
-        try:
-            results = client.search(
-                collection_name=COLLECTION_SENTENCES,
-                query_vector=vector,
-                query_filter=query_filter,
-                limit=per_query_limit,
-            )
-
-            for r in results:
-                payload = r.payload or {}
-                hits.append(
-                    {
-                        "score": float(getattr(r, "score", 0.0) or 0.0),
-                        "query": query,
-                        "sentence_id": payload.get("sentence_id"),
-                        "video_id": payload.get("video_id"),
-                        "sentence_text": payload.get("sentence_text") or "",
-                        "title": payload.get("title"),
-                        "start_time": float(payload.get("start_time") or 0.0),
-                        "end_time": float(payload.get("end_time") or 0.0),
-                    }
+        for query, vector in zip(clean_queries, vectors):
+            conditions = [
+                FieldCondition(key="user_id", match=MatchValue(value=user_id)),
+            ]
+            if video_id is not None:
+                conditions.append(
+                    FieldCondition(key="video_id", match=MatchValue(value=video_id))
                 )
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.exception(
-                "qdrant: search failed for user_id=%s video_id=%s query=%r: %s",
-                user_id,
-                video_id,
-                query,
-                exc,
-            )
-            continue
 
-    return hits
+            query_filter = Filter(must=conditions)
+
+            try:
+                results = client.search(
+                    collection_name=COLLECTION_SENTENCES,
+                    query_vector=vector,
+                    query_filter=query_filter,
+                    limit=per_query_limit,
+                )
+
+                for r in results:
+                    payload = r.payload or {}
+                    hits.append(
+                        {
+                            "score": float(getattr(r, "score", 0.0) or 0.0),
+                            "query": query,
+                            "sentence_id": payload.get("sentence_id"),
+                            "video_id": payload.get("video_id"),
+                            "sentence_text": payload.get("sentence_text") or "",
+                            "title": payload.get("title"),
+                            "start_time": float(payload.get("start_time") or 0.0),
+                            "end_time": float(payload.get("end_time") or 0.0),
+                        }
+                    )
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.exception(
+                    "qdrant: search failed for user_id=%s video_id=%s query=%r: %s",
+                    user_id,
+                    video_id,
+                    query,
+                    exc,
+                )
+                continue
+
+        return hits
 
 
 # -----------------------------------------------------------------------------
@@ -306,33 +333,34 @@ def ingest_sentences_for_video(video_id: int, user_id: int) -> None:
             )
             return
 
-        ensure_collections()
-        client = get_qdrant_client()
+        with _embedded_qdrant_lock():
+            ensure_collections()
+            client = get_qdrant_client()
 
-        points: List[PointStruct] = []
-        for sentence, vector in zip(sentences, vectors):
-            payload: Dict[str, Any] = {
-                "user_id": user_id,
-                "video_id": video.id,
-                "sentence_id": sentence.id,
-                "sentence_index": sentence.sentence_index,
-                "sentence_text": sentence.sentence_text,
-                "title": video.title,
-                "start_time": float(sentence.start_time),
-                "end_time": float(sentence.end_time),
-            }
-            points.append(
-                PointStruct(
-                    id=sentence.id,
-                    vector=vector,
-                    payload=payload,
+            points: List[PointStruct] = []
+            for sentence, vector in zip(sentences, vectors):
+                payload: Dict[str, Any] = {
+                    "user_id": user_id,
+                    "video_id": video.id,
+                    "sentence_id": sentence.id,
+                    "sentence_index": sentence.sentence_index,
+                    "sentence_text": sentence.sentence_text,
+                    "title": video.title,
+                    "start_time": float(sentence.start_time),
+                    "end_time": float(sentence.end_time),
+                }
+                points.append(
+                    PointStruct(
+                        id=sentence.id,
+                        vector=vector,
+                        payload=payload,
+                    )
                 )
-            )
 
-        if not points:
-            return
+            if not points:
+                return
 
-        client.upsert(collection_name=COLLECTION_SENTENCES, points=points)
+            client.upsert(collection_name=COLLECTION_SENTENCES, points=points)
         logger.info(
             "qdrant: ingested %s sentences for video_id=%s user_id=%s",
             len(points),
@@ -490,22 +518,23 @@ def ingest_learning_progress_event(learning_progress_id: int) -> None:
             )
             return
 
-        ensure_collections()
-        client = get_qdrant_client()
+        with _embedded_qdrant_lock():
+            ensure_collections()
+            client = get_qdrant_client()
 
-        # Use a deterministic UUID so repeated ingestions for the same row
-        # update the same point instead of creating duplicates.
-        point_id = str(uuid5(NAMESPACE_URL, f"lp-{lp.id}"))
+            # Use a deterministic UUID so repeated ingestions for the same row
+            # update the same point instead of creating duplicates.
+            point_id = str(uuid5(NAMESPACE_URL, f"lp-{lp.id}"))
 
-        point = PointStruct(
-            id=point_id,
-            vector=vectors[0],
-            payload=payload,
-        )
-        client.upsert(
-            collection_name=COLLECTION_USER_LEARNING_EVENTS,
-            points=[point],
-        )
+            point = PointStruct(
+                id=point_id,
+                vector=vectors[0],
+                payload=payload,
+            )
+            client.upsert(
+                collection_name=COLLECTION_USER_LEARNING_EVENTS,
+                points=[point],
+            )
         logger.info(
             "qdrant: ingested learning event for LearningProgress id=%s user_id=%s",
             learning_progress_id,
@@ -622,21 +651,22 @@ def ingest_lesson_session_event(lesson_session_id: int) -> None:
             )
             return
 
-        ensure_collections()
-        client = get_qdrant_client()
+        with _embedded_qdrant_lock():
+            ensure_collections()
+            client = get_qdrant_client()
 
-        # Deterministic UUID for lesson sessions as well.
-        point_id = str(uuid5(NAMESPACE_URL, f"session-{session.id}"))
+            # Deterministic UUID for lesson sessions as well.
+            point_id = str(uuid5(NAMESPACE_URL, f"session-{session.id}"))
 
-        point = PointStruct(
-            id=point_id,
-            vector=vectors[0],
-            payload=payload,
-        )
-        client.upsert(
-            collection_name=COLLECTION_USER_LEARNING_EVENTS,
-            points=[point],
-        )
+            point = PointStruct(
+                id=point_id,
+                vector=vectors[0],
+                payload=payload,
+            )
+            client.upsert(
+                collection_name=COLLECTION_USER_LEARNING_EVENTS,
+                points=[point],
+            )
         logger.info(
             "qdrant: ingested lesson session id=%s user_id=%s",
             lesson_session_id,

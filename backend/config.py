@@ -2,14 +2,17 @@
 import os
 
 # Qdrant vector store
-# Self-hosted: QDRANT_URL=http://localhost:6333, QDRANT_API_KEY optional.
+# Embedded (desktop): set QDRANT_LOCAL_PATH to a writable directory — uses in-process Qdrant (no server binary).
+# Server / Docker: QDRANT_URL=http://localhost:6333, QDRANT_API_KEY optional.
+QDRANT_LOCAL_PATH = os.getenv("QDRANT_LOCAL_PATH", "").strip() or None
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY") or None
-# Must match the embedding model dimension. Default 384 for free local model all-MiniLM-L6-v2.
-QDRANT_VECTOR_SIZE = int(os.getenv("QDRANT_VECTOR_SIZE", "384"))
+# Must match the Gemini embedding model output size (default 768 for models/embedding-001).
+QDRANT_VECTOR_SIZE = int(os.getenv("QDRANT_VECTOR_SIZE", "768"))
 
-# Free local embeddings (no API key). Options: all-MiniLM-L6-v2 (384), all-mpnet-base-v2 (768).
-EMBEDDING_MODEL_NAME = os.getenv("EMBEDDING_MODEL_NAME", "sentence-transformers/all-MiniLM-L6-v2")
+# Gemini Developer API embeddings (same API key as chat). Override if Google renames models.
+# Common: models/embedding-001 (768 dims). See https://ai.google.dev/gemini-api/docs/embeddings
+GEMINI_EMBEDDING_MODEL = (os.getenv("GEMINI_EMBEDDING_MODEL") or "models/embedding-001").strip()
 
 # Gemini model for AI coach (required by ChatGoogleGenerativeAI).
 # Default: gemini-3-flash-preview. If you get 404, list models for your key:

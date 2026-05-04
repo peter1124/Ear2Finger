@@ -158,20 +158,17 @@ export async function fetchMe(): Promise<UserInfo> {
   return data
 }
 
-export type AIProvider = 'openai' | 'gemini' | 'anthropic'
+/** This app only supports Google Gemini for LLM and embeddings. */
+export type AIProvider = 'gemini'
 
 export interface AIConfig {
-  ai_provider: AIProvider | null
-  has_openai_api_key: boolean
+  ai_provider: AIProvider
   has_gemini_api_key: boolean
-  has_anthropic_api_key: boolean
 }
 
 export interface SetConfigPayload {
   ai_provider?: AIProvider
-  openai_api_key?: string | null
   gemini_api_key?: string | null
-  anthropic_api_key?: string | null
   // Allow future non-AI config keys without tightening this type too much
   [key: string]: string | number | boolean | null | undefined
 }
@@ -195,35 +192,35 @@ export interface AIKeyHint {
 
 export interface ListAIKeysResponse {
   provider: AIProvider
-  ai_provider: AIProvider | null
+  ai_provider: string | null
   keys: AIKeyHint[]
 }
 
-export async function listAIKeys(provider: AIProvider): Promise<ListAIKeysResponse> {
+export async function listAIKeys(): Promise<ListAIKeysResponse> {
   const { data } = await api.get<ListAIKeysResponse>('/api/user/ai-keys', {
-    params: { provider },
+    params: { provider: 'gemini' satisfies AIProvider },
   })
   return data
 }
 
-export async function addAIKey(provider: AIProvider, key: string, makeActive = true): Promise<AIKeyHint> {
+export async function addAIKey(key: string, makeActive = true): Promise<AIKeyHint> {
   const { data } = await api.post<AIKeyHint>('/api/user/ai-keys', {
-    provider,
+    provider: 'gemini' satisfies AIProvider,
     key,
     make_active: makeActive,
   })
   return data
 }
 
-export async function activateAIKey(provider: AIProvider, keyId: string): Promise<void> {
+export async function activateAIKey(keyId: string): Promise<void> {
   await api.post('/api/user/ai-keys/' + encodeURIComponent(keyId) + '/activate', null, {
-    params: { provider },
+    params: { provider: 'gemini' satisfies AIProvider },
   })
 }
 
-export async function deleteAIKey(provider: AIProvider, keyId: string): Promise<void> {
+export async function deleteAIKey(keyId: string): Promise<void> {
   await api.delete('/api/user/ai-keys/' + encodeURIComponent(keyId), {
-    params: { provider },
+    params: { provider: 'gemini' satisfies AIProvider },
   })
 }
 

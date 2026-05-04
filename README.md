@@ -13,8 +13,7 @@ A locally deployable web application that allows users to improve their English 
 - **SQLite** - Database for storing videos and sentences
 - **NLTK** - Natural language processing for sentence segmentation
 - **Qdrant** - Vector database for storing sentence and learning-history embeddings (AI coach)
-- **sentence-transformers** - Local embedding models for sentence and history vectors
-- **Gemini** (via LangChain) - LLM provider powering the AI coach feedback
+- **Gemini** (via LangChain) - LLM and **text embeddings** (same Google API key as chat; no local PyTorch stack)
 
 ### Frontend
 - **React 18** - UI library
@@ -60,6 +59,9 @@ Ear2Finger/
 │   ├── tsconfig.json            # TypeScript configuration
 │   └── tailwind.config.js       # Tailwind CSS configuration
 │
+├── electron/                    # Electron main process (desktop)
+├── scripts/                     # Qdrant download + electron dev orchestration
+├── package.json                 # Root Electron + electron-builder config
 └── README.md                    # This file
 ```
 
@@ -71,6 +73,23 @@ Ear2Finger/
   - Install on macOS: `brew install ffmpeg`
   - Install on Ubuntu/Debian: `sudo apt-get install ffmpeg`
   - Install on Windows: Download from [FFmpeg website](https://ffmpeg.org/download.html)
+
+## Desktop (Electron)
+
+The repository root includes an **Electron** shell that starts a **PyInstaller-bundled** FastAPI backend (no system Python in the installer) and uses **embedded Qdrant** via `qdrant-client` local storage (`QDRANT_LOCAL_PATH`). Application data (SQLite, Qdrant files, downloads, audio) lives under Electron’s per-user `userData` directory.
+
+**Prerequisites to build installers:** Node.js and **Python 3** with a `backend/` virtual environment and `pip install -r requirements.txt`. The build script installs **PyInstaller** into that venv and freezes `run_electron_backend.py` into `backend/build/pyinstaller-dist/run_electron_backend/` (onedir). No separate C toolchain or `patchelf` is required for a typical wheel-based freeze.
+
+1. From the repo root: `npm install`.
+2. Set up the Python backend under `backend/` as in [Backend Setup](#backend-setup) (virtual environment and `pip install -r requirements.txt`) — required for **`npm run electron:dev`** and for **`npm run electron:build:backend`** (PyInstaller uses that venv).
+3. **Development:** `npm run electron:dev` — sets `QDRANT_LOCAL_PATH` under `.electron-dev-userdata/`, runs Uvicorn on port 8000, Vite on port 3000, and opens Electron pointed at the dev server. On **Linux**, Chromium’s setuid `chrome-sandbox` is not usable from a normal install, so the dev launcher passes `--no-sandbox`, **`main.cjs` sets the same switches at runtime**, and **`npm run electron:pack` adds `linux.executableArgs`** so **AppImage / .deb** start Chromium with `--no-sandbox` before JS loads. **Older AppImages** can still be run as `./Ear2Finger-*.AppImage --no-sandbox`.
+4. **Installers / portable builds:** `npm run electron:pack` — runs **`npm run electron:build:backend`** (PyInstaller onedir into `resources/backend-bin/`), builds the frontend, then `electron-builder` (output in `release/`). End users do **not** install Python or `pip install` the backend.
+
+**Optional — external Qdrant HTTP server (legacy / debugging):** set `ELECTRON_EXTERNAL_QDRANT=1` before starting the app. Then Electron expects a Qdrant API on `http://127.0.0.1:6333` (e.g. from Docker or from `npm run electron:vendor`, which downloads the [official Qdrant binary](https://github.com/qdrant/qdrant/releases) into `electron/vendor/qdrant/`).
+
+**Linux `.deb` installed but nothing opens:** run the app binary from a terminal (see `dpkg -L ear2finger | grep /bin/`) so stderr is visible. Builds write **`startup.log`** and **`uvicorn.log`** under `~/.config/ear2finger/`. With external Qdrant, **`qdrant.log`** is also written there.
+
+You can keep using the plain web stack (`run-dev.sh` or Vite + Uvicorn) with **either** `QDRANT_LOCAL_PATH` **or** an HTTP Qdrant endpoint — see `backend/.env.example`.
 
 ## Setup Instructions
 
@@ -199,14 +218,13 @@ AI coach plumbing:
     - All lesson sentences as **sentence embeddings** for semantic search.
   - Qdrant can run locally (default `http://localhost:6333`) or via Qdrant Cloud.
 - LLM + embeddings:
-  - `ai_client_factory.py` builds:
-    - A Gemini chat model (configurable via `GEMINI_MODEL` and API key in `.env`).
-    - A local `sentence-transformers` embedding model for Qdrant.
+  - `ai_client_factory.py` builds a **Gemini** chat model (`GEMINI_MODEL` in env) and **Gemini embeddings** (`GEMINI_EMBEDDING_MODEL`, default `models/embedding-001`) using the **same API key** each user saves in Settings (`gemini_api_key`).
+  - `QDRANT_VECTOR_SIZE` must match the embedding dimension (default **768** for `models/embedding-001`). If you previously used the local 384-dim model, **recreate or clear** Qdrant collections / bump vector size before re-ingesting.
 
 To **enable the AI coach**, you need:
 
-- A running **Qdrant** instance (local or cloud) reachable from the backend.
-- A valid **Gemini API key** and model name configured in `backend/.env`.
+- A running **Qdrant** instance (embedded path, local server, or cloud) reachable from the backend.
+- Each user: a valid **Gemini API key** in Settings (coach + embeddings). Optional: override `GEMINI_MODEL` / `GEMINI_EMBEDDING_MODEL` / `QDRANT_VECTOR_SIZE` in `backend/.env`.
 - A logged-in user practicing at least a few sentences so that stats and vectors exist.
 
 ### How It Works

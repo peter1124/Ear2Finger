@@ -11,7 +11,16 @@ import re
 import os
 
 router = APIRouter()
-processor = YouTubeProcessor()
+
+# Lazy init: importing this module must not mkdir under backend/ (read-only in AppImage / deb).
+_processor: Optional[YouTubeProcessor] = None
+
+
+def _get_youtube_processor() -> YouTubeProcessor:
+    global _processor
+    if _processor is None:
+        _processor = YouTubeProcessor()
+    return _processor
 
 
 class YouTubeUrlRequest(BaseModel):
@@ -72,7 +81,7 @@ async def process_youtube_video(
 ):
     """Process a YouTube video: extract subtitles and segment into sentences"""
     try:
-        result = processor.process_youtube_video(
+        result = _get_youtube_processor().process_youtube_video(
             request.url, db, user_id=current_user.id
         )
 

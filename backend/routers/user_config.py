@@ -1,4 +1,4 @@
-"""User-scoped configuration (e.g. AI provider + API keys, app preferences)."""
+"""User-scoped configuration (e.g. Gemini API keys, app preferences)."""
 from typing import Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,8 +10,8 @@ from auth import get_current_user
 
 router = APIRouter()
 
+AI_PROVIDER = "gemini"
 
-AI_PROVIDER_KEYS = {"openai", "gemini", "anthropic"}
 SECRET_CONFIG_KEYS = {
     "api_key",  # legacy
     "openai_api_key",
@@ -21,15 +21,13 @@ SECRET_CONFIG_KEYS = {
 
 
 class AIConfigResponse(BaseModel):
-    """Shape returned to the frontend for AI provider + key status.
+    """Shape returned to the frontend for AI key status.
 
-    NOTE: We intentionally never expose raw API key values here.
+    Raw API key values are never exposed; only a boolean flag for Gemini.
     """
 
-    ai_provider: Optional[str] = None
-    has_openai_api_key: bool = False
+    ai_provider: str = AI_PROVIDER
     has_gemini_api_key: bool = False
-    has_anthropic_api_key: bool = False
 
 
 def _get_user_configs(db: Session, user_id: int) -> Dict[str, Optional[str]]:
@@ -37,58 +35,26 @@ def _get_user_configs(db: Session, user_id: int) -> Dict[str, Optional[str]]:
     return {r.key: r.value for r in rows}
 
 
+def _has_gemini_key(configs: Dict[str, Optional[str]]) -> bool:
+    if configs.get("gemini_api_key"):
+        return True
+    if any(k.startswith("gemini_api_key:") and configs.get(k) for k in configs):
+        return True
+    legacy = configs.get("api_key")
+    return bool(legacy)
+
+
 @router.get("/user/config", response_model=AIConfigResponse)
 async def get_config(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get AI provider + key status for the current user.
-
-    Raw API keys are never returned; instead we expose boolean "has_*_api_key" flags.
-    Legacy keys (ai_vendor/api_key) are mapped into the canonical shape.
-    """
+    """Get Gemini API key presence for the current user."""
     configs = _get_user_configs(db, current_user.id)
-
-    # Canonical provider (preferred) or legacy ai_vendor mapping
-    ai_provider = configs.get("ai_provider")
-    legacy_vendor = configs.get("ai_vendor")
-    if not ai_provider and legacy_vendor:
-        legacy_vendor_norm = legacy_vendor.strip().lower()
-        if legacy_vendor_norm in AI_PROVIDER_KEYS:
-            ai_provider = legacy_vendor_norm
-        else:
-            # Map common title-cased values
-            title_map = {
-                "gemini": "gemini",
-                "openai": "openai",
-                "anthropic": "anthropic",
-            }
-            ai_provider = title_map.get(legacy_vendor_norm)
-
-    # Per-provider key presence: canonical row (e.g. openai_api_key) or any managed key (e.g. openai_api_key:uuid)
-    def _has_provider_key(prefix: str) -> bool:
-        if configs.get(prefix):
-            return True
-        return any(k.startswith(prefix + ":") and configs.get(k) for k in configs)
-
-    has_openai = _has_provider_key("openai_api_key")
-    has_gemini = _has_provider_key("gemini_api_key")
-    has_anthropic = _has_provider_key("anthropic_api_key")
-
-    legacy_api_key = configs.get("api_key")
-    if legacy_api_key and ai_provider in AI_PROVIDER_KEYS:
-        if ai_provider == "openai":
-            has_openai = True
-        elif ai_provider == "gemini":
-            has_gemini = True
-        elif ai_provider == "anthropic":
-            has_anthropic = True
-
+    has_gemini = _has_gemini_key(configs)
     return AIConfigResponse(
-        ai_provider=ai_provider,
-        has_openai_api_key=has_openai,
+        ai_provider=AI_PROVIDER,
         has_gemini_api_key=has_gemini,
-        has_anthropic_api_key=has_anthropic,
     )
 
 
@@ -100,33 +66,24 @@ async def set_config(
 ):
     """Set config entries.
 
-    For AI settings, prefer JSON like:
-      {
-        "ai_provider": "gemini",
-        "gemini_api_key": "GEMINI-...",
-      }
-
-    Raw API keys are accepted in the request body but never returned from GET /user/config.
+    AI: only Google Gemini is supported. Example body:
+      { "ai_provider": "gemini", "gemini_api_key": "..." }
     """
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="Invalid request body")
 
     configs = _get_user_configs(db, current_user.id)
 
-    # Normalise provider if present
     ai_provider = body.get("ai_provider")
     if ai_provider is not None:
         if not isinstance(ai_provider, str):
             raise HTTPException(status_code=400, detail="ai_provider must be a string")
-        ai_provider_norm = ai_provider.strip().lower()
-        if ai_provider_norm not in AI_PROVIDER_KEYS:
+        if ai_provider.strip().lower() != AI_PROVIDER:
             raise HTTPException(
                 status_code=400,
-                detail=f"Invalid ai_provider '{ai_provider}'. Must be one of: {sorted(AI_PROVIDER_KEYS)}.",
+                detail=f"This app only supports Google Gemini (ai_provider must be '{AI_PROVIDER}').",
             )
-        ai_provider = ai_provider_norm
 
-    # Helper to upsert a single key
     def upsert_key(key: str, value: Optional[str]) -> None:
         existing = (
             db.query(UserConfig)
@@ -134,7 +91,6 @@ async def set_config(
             .first()
         )
         if value is None or (isinstance(value, str) and not value.strip()):
-            # Treat null/empty as clearing the value without deleting the row
             if existing:
                 existing.value = None
         else:
@@ -144,38 +100,25 @@ async def set_config(
             else:
                 db.add(UserConfig(user_id=current_user.id, key=key, value=val_str))
 
-    # Update canonical AI provider, if supplied
     if ai_provider is not None:
-        upsert_key("ai_provider", ai_provider)
+        upsert_key("ai_provider", AI_PROVIDER)
 
-    # Update per-provider API keys if included in the payload
-    for provider_key in ("openai_api_key", "gemini_api_key", "anthropic_api_key"):
-        if provider_key in body:
-            raw_val = body.get(provider_key)
-            # Avoid accidentally logging raw keys; just upsert
-            upsert_key(provider_key, raw_val if raw_val is not None else None)
+    if "gemini_api_key" in body:
+        upsert_key("gemini_api_key", body.get("gemini_api_key"))
 
-    # Allow non-AI config keys to pass through as generic entries,
-    # but prevent direct writes to known secret keys via legacy names.
     for key, value in body.items():
         if key in {"ai_provider", "ai_vendor"} or key in SECRET_CONFIG_KEYS:
-            # Already handled above or intentionally ignored
             continue
         if not isinstance(key, str) or not key.strip():
             continue
         upsert_key(key, str(value) if value is not None else None)
 
-    # Optional validation: if a provider is configured, ensure we have *some* key,
-    # either from this request or existing config (including legacy api_key).
-    final_ai_provider = ai_provider or configs.get("ai_provider")
-    if final_ai_provider:
-        # Re-read keys for the chosen provider
-        provider_key_name = f"{final_ai_provider}_api_key"
-        provider_key_val = body.get(provider_key_name) or configs.get(provider_key_name)
-        if not provider_key_val and not configs.get("api_key"):
+    if ai_provider is not None or "gemini_api_key" in body:
+        db.flush()
+        if not _has_gemini_key(_get_user_configs(db, current_user.id)):
             raise HTTPException(
                 status_code=400,
-                detail=f"Missing API key for provider '{final_ai_provider}'. Please provide it.",
+                detail="Missing Gemini API key. Please provide gemini_api_key.",
             )
 
     db.commit()

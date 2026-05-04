@@ -14,7 +14,6 @@ import {
   deleteUser,
   fetchMe,
   type AdminUser,
-  type AIProvider,
   type SetConfigPayload,
   type AIKeyHint,
 } from '../api'
@@ -28,11 +27,8 @@ export default function Settings() {
   const { user, logout, setUser } = useAuth()
   const [activeSection, setActiveSection] = useState<SettingsSection>('ai-api-key')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
-  const [aiProvider, setAiProvider] = useState<AIProvider>('gemini')
   const [apiKey, setApiKey] = useState('')
-  const [hasOpenaiKey, setHasOpenaiKey] = useState(false)
   const [hasGeminiKey, setHasGeminiKey] = useState(false)
-  const [hasAnthropicKey, setHasAnthropicKey] = useState(false)
   const [aiConfigError, setAiConfigError] = useState<string | null>(null)
   const [aiKeys, setAiKeys] = useState<AIKeyHint[]>([])
   const [aiKeysLoading, setAiKeysLoading] = useState(false)
@@ -65,22 +61,8 @@ export default function Settings() {
   const loadAIKeys = useCallback(() => {
     setAiKeysLoading(true)
     setAiKeysError(null)
-    Promise.allSettled([
-      listAIKeys('openai'),
-      listAIKeys('gemini'),
-      listAIKeys('anthropic'),
-    ])
-      .then((results) => {
-        const fulfilled = results.filter(
-          (r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof listAIKeys>>> =>
-            r.status === 'fulfilled'
-        )
-        const allKeys = fulfilled.flatMap((r) => r.value.keys)
-        setAiKeys(allKeys)
-        if (fulfilled.length === 0) {
-          setAiKeysError('Failed to load API keys')
-        }
-      })
+    listAIKeys()
+      .then((res) => setAiKeys(res.keys))
       .catch(() => {
         setAiKeysError('Failed to load API keys')
       })
@@ -90,10 +72,7 @@ export default function Settings() {
   useEffect(() => {
     getConfig()
       .then((c) => {
-        if (c.ai_provider) setAiProvider(c.ai_provider)
-        setHasOpenaiKey(Boolean(c.has_openai_api_key))
         setHasGeminiKey(Boolean(c.has_gemini_api_key))
-        setHasAnthropicKey(Boolean(c.has_anthropic_api_key))
       })
       .catch(() => {})
   }, [])
@@ -196,21 +175,15 @@ export default function Settings() {
     try {
       const trimmedKey = apiKey.trim()
       if (trimmedKey) {
-        // Add a new key for the selected provider and make it active
-        await addAIKey(aiProvider, trimmedKey, true)
-        await setConfig({ ai_provider: aiProvider } satisfies SetConfigPayload)
+        await addAIKey(trimmedKey, true)
+        await setConfig({ ai_provider: 'gemini' } satisfies SetConfigPayload)
       } else {
-        // Only update provider selection
-        await setConfig({ ai_provider: aiProvider } satisfies SetConfigPayload)
+        await setConfig({ ai_provider: 'gemini' } satisfies SetConfigPayload)
       }
       setApiKey('')
 
-      // Refresh key status after saving
       const c = await getConfig()
-      if (c.ai_provider) setAiProvider(c.ai_provider)
-      setHasOpenaiKey(Boolean(c.has_openai_api_key))
       setHasGeminiKey(Boolean(c.has_gemini_api_key))
-      setHasAnthropicKey(Boolean(c.has_anthropic_api_key))
       loadAIKeys()
       console.log('Settings saved')
     } catch (e: unknown) {
@@ -220,16 +193,13 @@ export default function Settings() {
     }
   }
 
-  const handleActivateKey = async (provider: AIProvider, keyId: string) => {
+  const handleActivateKey = async (keyId: string) => {
     setAiConfigError(null)
     try {
-      await activateAIKey(provider, keyId)
-      await setConfig({ ai_provider: provider } satisfies SetConfigPayload)
+      await activateAIKey(keyId)
+      await setConfig({ ai_provider: 'gemini' } satisfies SetConfigPayload)
       const c = await getConfig()
-      if (c.ai_provider) setAiProvider(c.ai_provider)
-      setHasOpenaiKey(Boolean(c.has_openai_api_key))
       setHasGeminiKey(Boolean(c.has_gemini_api_key))
-      setHasAnthropicKey(Boolean(c.has_anthropic_api_key))
       loadAIKeys()
     } catch (e: unknown) {
       const ax = e as { response?: { data?: { detail?: string } } }
@@ -237,15 +207,12 @@ export default function Settings() {
     }
   }
 
-  const handleDeleteKey = async (provider: AIProvider, keyId: string) => {
+  const handleDeleteKey = async (keyId: string) => {
     setAiConfigError(null)
     try {
-      await deleteAIKey(provider, keyId)
+      await deleteAIKey(keyId)
       const c = await getConfig()
-      if (c.ai_provider) setAiProvider(c.ai_provider)
-      setHasOpenaiKey(Boolean(c.has_openai_api_key))
       setHasGeminiKey(Boolean(c.has_gemini_api_key))
-      setHasAnthropicKey(Boolean(c.has_anthropic_api_key))
       loadAIKeys()
     } catch (e: unknown) {
       const ax = e as { response?: { data?: { detail?: string } } }
@@ -419,41 +386,14 @@ export default function Settings() {
             <div className="w-full max-w-3xl">
               <h1 className="text-2xl font-bold text-gray-900 mb-2">AI API-KEY</h1>
               <p className="text-sm text-gray-600 mb-6">
-                Current provider: <strong className="text-gray-900">{aiProvider === 'openai' ? 'OpenAI' : aiProvider === 'gemini' ? 'Gemini' : 'Anthropic'}</strong>
-                {(aiProvider === 'openai' && hasOpenaiKey) ||
-                 (aiProvider === 'gemini' && hasGeminiKey) ||
-                 (aiProvider === 'anthropic' && hasAnthropicKey)
-                  ? ' • API key configured'
-                  : ' • No API key saved for this provider'}
+                AI uses <strong className="text-gray-900">Google Gemini</strong> for the coach and for embeddings (Qdrant).
+                {hasGeminiKey ? ' • API key configured' : ' • No API key saved yet'}
               </p>
 
               <div className="space-y-6">
                 {aiConfigError && (
                   <div className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{aiConfigError}</div>
                 )}
-                {/* AI Vendor Dropdown */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    AI Provider
-                  </label>
-                  <div className="relative">
-                    <select
-                      value={aiProvider}
-                      onChange={(e) => setAiProvider(e.target.value as AIProvider)}
-                      className="w-full bg-gray-900 text-white px-4 py-3 rounded-lg appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-gray-700"
-                    >
-                      <option value="gemini">Gemini</option>
-                      <option value="openai">OpenAI</option>
-                      <option value="anthropic">Anthropic</option>
-                    </select>
-                    <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-                      <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </div>
-                  </div>
-                </div>
-
                 {/* API Key Text Area */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -463,11 +403,9 @@ export default function Settings() {
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                     placeholder={
-                      (aiProvider === 'openai' && hasOpenaiKey) ||
-                      (aiProvider === 'gemini' && hasGeminiKey) ||
-                      (aiProvider === 'anthropic' && hasAnthropicKey)
+                      hasGeminiKey
                         ? 'Key is configured. Paste a new key to replace it.'
-                        : 'Enter your API key here...'
+                        : 'Enter your Gemini API key here...'
                     }
                     rows={8}
                     className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
@@ -494,7 +432,7 @@ export default function Settings() {
                   {aiKeysLoading ? (
                     <p className="text-sm text-gray-600">Loading keys…</p>
                   ) : aiKeys.length === 0 ? (
-                    <p className="text-sm text-gray-600">No keys saved yet for this provider.</p>
+                    <p className="text-sm text-gray-600">No keys saved yet.</p>
                   ) : (
                     <ul className="space-y-2">
                       {aiKeys.map((k) => (
@@ -505,11 +443,7 @@ export default function Settings() {
                           <div className="flex flex-col">
                             <span className="text-sm text-gray-900">
                               <span className="mr-2 inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-800">
-                                {k.provider === 'openai'
-                                  ? 'OpenAI'
-                                  : k.provider === 'gemini'
-                                  ? 'Gemini'
-                                  : 'Anthropic'}
+                                Gemini
                               </span>
                               …{k.last4 || '????'}
                               {k.is_active && (
@@ -526,7 +460,7 @@ export default function Settings() {
                             {!k.is_active && (
                               <button
                                 type="button"
-                                onClick={() => handleActivateKey(k.provider, k.id)}
+                                onClick={() => handleActivateKey(k.id)}
                                 className="px-2 py-1 text-xs font-medium text-gray-900 border border-gray-300 rounded hover:bg-gray-50"
                               >
                                 Activate
@@ -534,7 +468,7 @@ export default function Settings() {
                             )}
                             <button
                               type="button"
-                              onClick={() => handleDeleteKey(k.provider, k.id)}
+                              onClick={() => handleDeleteKey(k.id)}
                               className="px-2 py-1 text-xs font-medium text-red-600 border border-red-200 rounded hover:bg-red-50"
                             >
                               Delete

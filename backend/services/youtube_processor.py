@@ -10,10 +10,18 @@ import os
 
 class YouTubeProcessor:
     def __init__(self, download_dir: str = None, audio_dir: str = None):
-        # Use absolute paths relative to backend directory
+        # Use absolute paths relative to backend directory (or Electron userData via env)
         backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.download_dir = download_dir or os.path.join(backend_dir, "downloads")
-        self.audio_dir = audio_dir or os.path.join(backend_dir, "audio")
+        self.download_dir = (
+            download_dir
+            or os.getenv("EAR2FINGER_DOWNLOAD_DIR")
+            or os.path.join(backend_dir, "downloads")
+        )
+        self.audio_dir = (
+            audio_dir
+            or os.getenv("EAR2FINGER_AUDIO_DIR")
+            or os.path.join(backend_dir, "audio")
+        )
         os.makedirs(self.download_dir, exist_ok=True)
         os.makedirs(self.audio_dir, exist_ok=True)
 

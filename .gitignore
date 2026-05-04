@@ -214,12 +214,20 @@ __marimo__/
 
 # Node.js / Frontend
 node_modules/
+.electron-dev-userdata/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 .pnpm-debug.log*
+
+# Electron
+electron/vendor/
+release/
+
+# PyInstaller / backend build outputs
+backend/build/
 
 # Frontend build outputs
 frontend/dist/
