@@ -105,7 +105,25 @@ function pickAsset(platform, arch) {
 function extractArchive(archivePath, destDir) {
   fs.mkdirSync(destDir, { recursive: true })
   if (archivePath.endsWith('.zip')) {
-    execFileSync('tar', ['-xf', archivePath, '-C', destDir], { stdio: 'inherit' })
+    // GNU tar on Windows treats "D:\path" after -C as remote (colon) → "Cannot connect to D:".
+    if (process.platform === 'win32') {
+      execFileSync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          'Expand-Archive',
+          '-LiteralPath',
+          archivePath,
+          '-DestinationPath',
+          destDir,
+          '-Force',
+        ],
+        { stdio: 'inherit' },
+      )
+    } else {
+      execFileSync('tar', ['-xf', archivePath, '-C', destDir], { stdio: 'inherit' })
+    }
   } else {
     execFileSync('tar', ['-xzf', archivePath, '-C', destDir], { stdio: 'inherit' })
   }
