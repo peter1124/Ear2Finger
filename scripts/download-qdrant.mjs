@@ -2,7 +2,8 @@
 /**
  * Download the official Qdrant binary for the current OS/arch into electron/vendor/qdrant/.
  * Run from repo root: node scripts/download-qdrant.mjs
- * Uses GitHub latest release API (override with QDRANT_VERSION=v1.17.1).
+ * Latest tag: follows github.com/.../releases/latest (no api.github.com — avoids CI 403 rate limits).
+ * Pin: QDRANT_VERSION=v1.17.1
  */
 import fs from 'fs'
 import path from 'path'
@@ -15,47 +16,43 @@ const ROOT = path.join(__dirname, '..')
 const OUT_DIR = path.join(ROOT, 'electron', 'vendor', 'qdrant')
 const MARKER = path.join(OUT_DIR, '.version')
 
-/** GitHub REST (api.github.com) needs auth in CI to avoid 403 from rate limits. */
-function githubApiHeaders() {
-  const headers = {
-    'User-Agent': 'Ear2Finger-electron-setup',
-    Accept: 'application/vnd.github+json',
-  }
-  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
-  if (token) {
-    headers.Authorization = `Bearer ${token}`
-  }
-  return headers
-}
-
 function downloadHeaders() {
   return { 'User-Agent': 'Ear2Finger-electron-setup' }
 }
 
-function httpsGetJson(url) {
+/** Resolve tag_name (e.g. v1.15.0) from the web /releases/latest redirect chain. */
+function resolveLatestTagFromWebRedirect() {
   return new Promise((resolve, reject) => {
-    const headers = url.includes('api.github.com') ? githubApiHeaders() : downloadHeaders()
-    https
-      .get(url, { headers }, (res) => {
-        if (res.statusCode === 301 || res.statusCode === 302) {
-          const loc = res.headers.location
-          if (!loc) return reject(new Error('Redirect without location'))
-          return resolve(httpsGetJson(loc))
-        }
-        if (res.statusCode !== 200) {
-          return reject(new Error(`HTTP ${res.statusCode} for ${url}`))
-        }
-        const chunks = []
-        res.on('data', (c) => chunks.push(c))
-        res.on('end', () => {
-          try {
-            resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')))
-          } catch (e) {
-            reject(e)
+    const headers = downloadHeaders()
+
+    function follow(url) {
+      https.get(url, { headers }, (res) => {
+        const code = res.statusCode || 0
+        if ([301, 302, 303, 307, 308].includes(code)) {
+          let loc = res.headers.location
+          res.resume()
+          if (!loc) return reject(new Error(`HTTP ${code} redirect without Location from ${url}`))
+          if (loc.startsWith('/')) {
+            const u = new URL(url)
+            loc = `${u.protocol}//${u.host}${loc}`
           }
-        })
-      })
-      .on('error', reject)
+          return follow(loc)
+        }
+        const m = url.match(/\/releases\/tag\/([^/?#]+)/)
+        if (m) {
+          res.resume()
+          return resolve(decodeURIComponent(m[1]))
+        }
+        res.resume()
+        reject(
+          new Error(
+            `Could not parse release tag from ${url} (HTTP ${code}). Set QDRANT_VERSION if GitHub layout changes.`,
+          ),
+        )
+      }).on('error', reject)
+    }
+
+    follow('https://github.com/qdrant/qdrant/releases/latest')
   })
 }
 
@@ -136,20 +133,13 @@ async function main() {
   const forced = process.env.QDRANT_VERSION?.trim()
   let tag
   let browser_download_url
+  const assetName = pickAsset(platform, arch)
   if (forced) {
     tag = forced.startsWith('v') ? forced : `v${forced}`
-    const assetName = pickAsset(platform, arch)
-    browser_download_url = `https://github.com/qdrant/qdrant/releases/download/${tag}/${assetName}`
   } else {
-    const rel = await httpsGetJson('https://api.github.com/repos/qdrant/qdrant/releases/latest')
-    tag = rel.tag_name
-    const assetName = pickAsset(platform, arch)
-    const asset = rel.assets?.find((a) => a.name === assetName)
-    if (!asset) {
-      throw new Error(`No asset ${assetName} in ${tag}. Set QDRANT_VERSION to a release that includes it.`)
-    }
-    browser_download_url = asset.browser_download_url
+    tag = await resolveLatestTagFromWebRedirect()
   }
+  browser_download_url = `https://github.com/qdrant/qdrant/releases/download/${tag}/${assetName}`
 
   if (fs.existsSync(MARKER)) {
     const prev = fs.readFileSync(MARKER, 'utf8').trim()
