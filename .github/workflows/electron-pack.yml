@@ -4,6 +4,10 @@
 # macOS builds are unsigned by default (set CSC_LINK / CSC_KEY_PASSWORD for signing).
 name: Pack Electron
 
+# GitHub-hosted actions run on Node 24+ (Node 20 deprecated on runners).
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
   workflow_dispatch:
   push:
@@ -33,13 +37,13 @@ jobs:
         shell: bash
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "20"
 
@@ -79,7 +83,7 @@ jobs:
           # Skip macOS code signing lookup in CI (unsigned artifacts).
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ear2finger-${{ matrix.artifact }}
           path: release/
