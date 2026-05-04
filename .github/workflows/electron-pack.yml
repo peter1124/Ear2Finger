@@ -1,0 +1,87 @@
+# Build native PyInstaller backend + frontend, then electron-builder on each OS.
+# Artifacts: NSIS/portable (Windows), dmg/zip (macOS), AppImage/deb (Linux).
+#
+# macOS builds are unsigned by default (set CSC_LINK / CSC_KEY_PASSWORD for signing).
+name: Pack Electron
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: electron-pack-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pack:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04: libfuse2 for AppImage tooling; 24.04+ often drops libfuse2 from default repos.
+          - os: ubuntu-22.04
+            artifact: linux
+          - os: macos-latest
+            artifact: macos
+          - os: windows-latest
+            artifact: windows
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Linux packages (AppImage / deb)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends rpm libfuse2
+
+      - name: Backend venv and Python dependencies
+        run: |
+          cd backend
+          python -m venv venv
+          if [[ -f venv/Scripts/python.exe ]]; then
+            ./venv/Scripts/python.exe -m pip install -U pip wheel
+            ./venv/Scripts/python.exe -m pip install -r requirements.txt
+          else
+            ./venv/bin/python -m pip install -U pip wheel
+            ./venv/bin/python -m pip install -r requirements.txt
+          fi
+
+      - name: PyInstaller (backend)
+        run: bash scripts/pyinstaller-build-backend.sh
+
+      - name: npm install (root)
+        run: npm install
+
+      - name: Qdrant binary (electron vendor)
+        run: npm run electron:vendor
+
+      - name: Frontend build
+        run: npm run electron:build:frontend
+
+      - name: electron-builder
+        run: npx electron-builder --publish never
+        env:
+          # Skip macOS code signing lookup in CI (unsigned artifacts).
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ear2finger-${{ matrix.artifact }}
+          path: release/
+          if-no-files-found: error
+          retention-days: 14

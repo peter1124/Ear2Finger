@@ -9,12 +9,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT/backend"
 
-if [[ ! -x venv/bin/python ]]; then
-  echo "Create backend venv first: cd backend && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt" >&2
+if [[ -x venv/bin/python ]]; then
+  PY=./venv/bin/python
+elif [[ -f venv/Scripts/python.exe ]]; then
+  PY=./venv/Scripts/python.exe
+else
+  echo "Create backend venv first: cd backend && python -m venv venv && pip install -r requirements.txt" >&2
   exit 1
 fi
-
-PY=./venv/bin/python
 "$PY" -m pip install -q pyinstaller
 
 OUT_ROOT="$ROOT/backend/build/pyinstaller-dist"
