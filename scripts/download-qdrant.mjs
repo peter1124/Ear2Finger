@@ -15,10 +15,28 @@ const ROOT = path.join(__dirname, '..')
 const OUT_DIR = path.join(ROOT, 'electron', 'vendor', 'qdrant')
 const MARKER = path.join(OUT_DIR, '.version')
 
+/** GitHub REST (api.github.com) needs auth in CI to avoid 403 from rate limits. */
+function githubApiHeaders() {
+  const headers = {
+    'User-Agent': 'Ear2Finger-electron-setup',
+    Accept: 'application/vnd.github+json',
+  }
+  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
+  }
+  return headers
+}
+
+function downloadHeaders() {
+  return { 'User-Agent': 'Ear2Finger-electron-setup' }
+}
+
 function httpsGetJson(url) {
   return new Promise((resolve, reject) => {
+    const headers = url.includes('api.github.com') ? githubApiHeaders() : downloadHeaders()
     https
-      .get(url, { headers: { 'User-Agent': 'Ear2Finger-electron-setup' } }, (res) => {
+      .get(url, { headers }, (res) => {
         if (res.statusCode === 301 || res.statusCode === 302) {
           const loc = res.headers.location
           if (!loc) return reject(new Error('Redirect without location'))
@@ -44,8 +62,9 @@ function httpsGetJson(url) {
 function downloadFile(url, destFile) {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(destFile)
+    const headers = downloadHeaders()
     https
-      .get(url, { headers: { 'User-Agent': 'Ear2Finger-electron-setup' } }, (res) => {
+      .get(url, { headers }, (res) => {
         if (res.statusCode === 301 || res.statusCode === 302) {
           const loc = res.headers.location
           file.close()
