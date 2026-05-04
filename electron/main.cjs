@@ -6,6 +6,8 @@ const { app, BrowserWindow, dialog } = require('electron')
 if (process.platform === 'linux') {
   app.commandLine.appendSwitch('no-sandbox')
   app.commandLine.appendSwitch('disable-setuid-sandbox')
+  // Quiets spurious GetVSyncParametersIfAvailable() GL errors on some Wayland/NVIDIA/driver setups.
+  app.commandLine.appendSwitch('disable-gpu-vsync')
 }
 const path = require('path')
 const fs = require('fs')
@@ -265,7 +267,7 @@ function appIconPath() {
     const p = path.join(process.resourcesPath, 'app-icon.png')
     if (fs.existsSync(p)) return p
   }
-  const dev = path.join(__dirname, '..', 'frontend', 'public', 'icon.png')
+  const dev = path.join(__dirname, '..', 'docs', 'assets', 'icon-bg.png')
   if (fs.existsSync(dev)) return dev
   return undefined
 }

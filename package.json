@@ -15,7 +15,7 @@
   "build": {
     "appId": "com.ear2finger.app",
     "productName": "Ear2Finger",
-    "icon": "frontend/public/icon.png",
+    "icon": "docs/assets/icon-bg.png",
     "directories": {
       "output": "release"
     },
@@ -34,7 +34,7 @@
         "to": "frontend-dist"
       },
       {
-        "from": "frontend/public/icon.png",
+        "from": "docs/assets/icon-bg.png",
         "to": "app-icon.png"
       }
     ],

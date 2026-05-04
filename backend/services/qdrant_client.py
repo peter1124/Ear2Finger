@@ -25,7 +25,13 @@ from qdrant_client.models import (
 )
 from sqlalchemy.orm import Session
 
-from config import QDRANT_API_KEY, QDRANT_LOCAL_PATH, QDRANT_URL, QDRANT_VECTOR_SIZE
+from config import (
+    QDRANT_API_KEY,
+    QDRANT_LOCAL_PATH,
+    QDRANT_RECREATE_ON_VECTOR_MISMATCH,
+    QDRANT_URL,
+    QDRANT_VECTOR_SIZE,
+)
 from database import (
     LessonSession,
     LearningProgress,
@@ -115,28 +121,121 @@ def get_qdrant_client() -> QdrantClient:
         return _client
 
 
+def _declared_vector_size(client: QdrantClient, collection_name: str) -> Optional[int]:
+    """Return configured vector dimension for the collection, or None if unreadable."""
+    info = client.get_collection(collection_name=collection_name)
+    vectors = info.config.params.vectors
+    if vectors is None:
+        return None
+    if hasattr(vectors, "size"):
+        return int(vectors.size)
+    if isinstance(vectors, dict):
+        for params in vectors.values():
+            if hasattr(params, "size"):
+                return int(params.size)
+    return None
+
+
+def _ensure_collection_vector_size(client: QdrantClient, collection_name: str, vec_config: VectorParams) -> None:
+    """
+    Create collection or align its vector size with vec_config.size.
+
+    If an existing collection uses a different size and holds no points, it is
+    deleted and recreated. If it holds points, raises unless QDRANT_RECREATE_ON_VECTOR_MISMATCH.
+    """
+    want = vec_config.size
+    if not client.collection_exists(collection_name):
+        client.create_collection(collection_name=collection_name, vectors_config=vec_config)
+        logger.info("Created Qdrant collection %s (vector size=%s)", collection_name, want)
+        return
+
+    have = _declared_vector_size(client, collection_name)
+    if have is None or have == want:
+        return
+
+    n = client.count(collection_name=collection_name, exact=True).count
+    if n > 0 and not QDRANT_RECREATE_ON_VECTOR_MISMATCH:
+        raise RuntimeError(
+            f"Qdrant collection {collection_name!r} uses vector size {have}, but "
+            f"QDRANT_VECTOR_SIZE={want} (embeddings must match). Either set "
+            f"QDRANT_VECTOR_SIZE={have} in the backend environment and restart, or "
+            f"set QDRANT_RECREATE_ON_VECTOR_MISMATCH=1 once to drop this collection's "
+            f"vectors and recreate it at dimension {want} (then re-ingest), or "
+            f"run `python scripts/rebuild_qdrant_collections.py` from the backend directory, or "
+            f"clear QDRANT_LOCAL_PATH / delete the collection manually."
+        )
+
+    if n > 0:
+        logger.warning(
+            "Deleting Qdrant collection %s (%s points, vector size %s -> %s) "
+            "because QDRANT_RECREATE_ON_VECTOR_MISMATCH is set",
+            collection_name,
+            n,
+            have,
+            want,
+        )
+
+    logger.warning(
+        "Recreating Qdrant collection %s: vector size %s -> %s (was %s points)",
+        collection_name,
+        have,
+        want,
+        n,
+    )
+    client.delete_collection(collection_name=collection_name)
+    client.create_collection(collection_name=collection_name, vectors_config=vec_config)
+    logger.info("Recreated Qdrant collection %s (vector size=%s)", collection_name, want)
+
+
 def ensure_collections() -> None:
     """
     Create Qdrant collections if they do not exist.
     Uses config QDRANT_VECTOR_SIZE and Cosine distance.
+
+    If collections already exist at a different vector size and are empty, they
+    are recreated so the configured embedding dimension matches Qdrant.
     """
     with _embedded_qdrant_lock():
         client = get_qdrant_client()
         vec_config = VectorParams(size=QDRANT_VECTOR_SIZE, distance=Distance.COSINE)
 
-        if not client.collection_exists(COLLECTION_USER_LEARNING_EVENTS):
-            client.create_collection(
-                collection_name=COLLECTION_USER_LEARNING_EVENTS,
-                vectors_config=vec_config,
-            )
-            logger.info("Created Qdrant collection %s", COLLECTION_USER_LEARNING_EVENTS)
+        _ensure_collection_vector_size(client, COLLECTION_USER_LEARNING_EVENTS, vec_config)
+        _ensure_collection_vector_size(client, COLLECTION_SENTENCES, vec_config)
 
-        if not client.collection_exists(COLLECTION_SENTENCES):
-            client.create_collection(
-                collection_name=COLLECTION_SENTENCES,
-                vectors_config=vec_config,
+
+def rebuild_qdrant_collections() -> None:
+    """
+    Delete AI-coach collections and recreate them empty at QDRANT_VECTOR_SIZE.
+
+    Clears the shared in-process client so the next request opens a new connection.
+    """
+    global _client
+    with _embedded_qdrant_lock():
+        client = get_qdrant_client()
+        vec_config = VectorParams(size=QDRANT_VECTOR_SIZE, distance=Distance.COSINE)
+        for name in (COLLECTION_USER_LEARNING_EVENTS, COLLECTION_SENTENCES):
+            if client.collection_exists(name):
+                n = client.count(collection_name=name, exact=True).count
+                logger.warning(
+                    "Deleting Qdrant collection %s (%s points) for rebuild at vector size=%s",
+                    name,
+                    n,
+                    QDRANT_VECTOR_SIZE,
+                )
+                client.delete_collection(collection_name=name)
+            client.create_collection(collection_name=name, vectors_config=vec_config)
+            logger.info(
+                "Created Qdrant collection %s (vector size=%s)",
+                name,
+                QDRANT_VECTOR_SIZE,
             )
-            logger.info("Created Qdrant collection %s", COLLECTION_SENTENCES)
+        with _client_lock:
+            if _client is not None:
+                try:
+                    _client.close()
+                except Exception:  # pragma: no cover
+                    logger.debug("Qdrant client close after rebuild", exc_info=True)
+                _client = None
 
 
 def close_qdrant_client() -> None:
@@ -688,6 +787,7 @@ __all__ = [
     "close_qdrant_client",
     "ensure_collections",
     "get_qdrant_client",
+    "rebuild_qdrant_collections",
     "ingest_learning_progress_event",
     "ingest_lesson_session_event",
     "ingest_sentences_for_video",

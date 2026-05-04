@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import List, Optional, Tuple
+from typing import Any, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -177,6 +177,29 @@ def _select_weak_words_from_stats(
     return selected
 
 
+def _stringify_llm_content(content: Any) -> str:
+    """Turn AIMessage.content into plain text (Gemini/LC may use str or block list)."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: List[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict):
+                for key in ("text", "content"):
+                    val = block.get(key)
+                    if isinstance(val, str) and val.strip():
+                        parts.append(val)
+                        break
+            else:
+                parts.append(str(block))
+        return "\n".join(parts)
+    return str(content)
+
+
 def _extract_feedback_from_model_output(text: str) -> Tuple[str, List[str]]:
     """Parse model output into (summary, suggestions) with robust fallbacks."""
     text = text.strip()
@@ -274,7 +297,10 @@ async def generate_coach_feedback(
             detail="AI provider failed while generating coach feedback.",
         ) from exc
 
-    content = getattr(result, "content", None) or str(result)
+    raw = getattr(result, "content", None)
+    if raw is None:
+        raw = str(result)
+    content = _stringify_llm_content(raw)
     summary, suggestions = _extract_feedback_from_model_output(content)
 
     if not summary and not suggestions:
