@@ -17,7 +17,7 @@ import {
   type SetConfigPayload,
   type AIKeyHint,
 } from '../api'
-import { checkGitHubForUpdate, GITHUB_PACKAGES_URL } from '../utils/githubUpdate'
+import { checkGitHubForUpdate, GITHUB_RELEASES_URL } from '../utils/githubUpdate'
 
 type SettingsSection = 'ai-api-key' | 'about' | 'users'
 
@@ -540,15 +540,13 @@ export default function Settings() {
                                   setUpdateCheckMessage(r.message)
                                   return
                                 }
-                                const src =
-                                  r.source === 'packages' ? 'GitHub Packages' : 'GitHub Releases'
                                 if (r.upToDate) {
                                   setUpdateCheckMessage(
-                                    `You are up to date (${__APP_SEMVER__}). Latest on ${src}: ${r.latest}.`,
+                                    `You are up to date (${__APP_SEMVER__}). Latest release: ${r.latest}.`,
                                   )
                                 } else {
                                   setUpdateCheckMessage(
-                                    `Update available: ${r.latest} (you have ${__APP_SEMVER__}). See ${src} on GitHub.`,
+                                    `Update available: ${r.latest} (you have ${__APP_SEMVER__}). See GitHub Releases for downloads.`,
                                   )
                                 }
                               } finally {
@@ -563,12 +561,12 @@ export default function Settings() {
                             <p className="text-xs text-gray-600 leading-snug">{updateCheckMessage}</p>
                           )}
                           <a
-                            href={GITHUB_PACKAGES_URL}
+                            href={GITHUB_RELEASES_URL}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline"
                           >
-                            Builds &amp; versions on GitHub Packages →
+                            Releases &amp; downloads on GitHub →
                           </a>
                         </div>
                       </div>

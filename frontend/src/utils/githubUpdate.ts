@@ -1,7 +1,6 @@
-/** Check latest app version from GitHub Packages (Ear2Finger) or Releases. */
+/** Check latest app version from GitHub Releases: https://github.com/stephenyin/Ear2Finger/releases */
 
-export const GITHUB_PACKAGES_URL =
-  'https://github.com/stephenyin?tab=packages&repo_name=Ear2Finger'
+export const GITHUB_RELEASES_URL = 'https://github.com/stephenyin/Ear2Finger/releases'
 
 const GITHUB_API = 'https://api.github.com'
 const OWNER = 'stephenyin'
@@ -30,106 +29,64 @@ export function compareSemver(a: string, b: string): number {
   return 0
 }
 
-type GhPackage = {
-  name?: string
-  package_type?: string
-  repository?: { full_name?: string; name?: string }
+function semverFromTag(tag: string): string | null {
+  const m = String(tag).match(/v?(\d+\.\d+\.\d+)/i)
+  return m ? m[1] : null
 }
 
-type GhPackageVersion = {
-  name?: string
-  metadata?: { container?: { tags?: string[] } }
-}
-
-function semverFromVersionObject(v: GhPackageVersion): string | null {
-  const tags = v.metadata?.container?.tags ?? []
-  const candidates = [v.name, ...tags].filter(Boolean) as string[]
-  for (const c of candidates) {
-    if (/^sha256:/i.test(c)) continue
-    const m = String(c).match(/v?(\d+\.\d+\.\d+)/i)
-    if (m) return m[1]
+/**
+ * Prefer GET .../releases/latest; if 404 or no semver, scan GET .../releases
+ * (e.g. when nothing is marked "Latest" on GitHub).
+ */
+async function fetchLatestSemverFromReleases(): Promise<string | null> {
+  const latestUrl = `${GITHUB_API}/repos/${OWNER}/${REPO}/releases/latest`
+  const latestRes = await fetch(latestUrl, { headers: HEADERS })
+  if (latestRes.ok) {
+    const data = (await latestRes.json()) as { tag_name?: string }
+    const tag = data.tag_name
+    if (typeof tag === 'string') {
+      const v = semverFromTag(tag)
+      if (v) return v
+    }
   }
-  return null
-}
 
-function pickLatestSemverFromVersions(versions: GhPackageVersion[]): string | null {
+  const listUrl = `${GITHUB_API}/repos/${OWNER}/${REPO}/releases?per_page=40`
+  const listRes = await fetch(listUrl, { headers: HEADERS })
+  if (!listRes.ok) return null
+  const list = (await listRes.json()) as { tag_name?: string; draft?: boolean; prerelease?: boolean }[]
+  if (!Array.isArray(list) || !list.length) return null
+
   let best: string | null = null
-  for (const v of versions) {
-    const s = semverFromVersionObject(v)
-    if (!s) continue
-    if (!best || compareSemver(s, best) > 0) best = s
+  for (const rel of list) {
+    if (rel.draft) continue
+    const tag = rel.tag_name
+    if (typeof tag !== 'string') continue
+    const v = semverFromTag(tag)
+    if (!v) continue
+    if (!best || compareSemver(v, best) > 0) best = v
   }
   return best
-}
-
-function packageMatchesRepo(p: GhPackage): boolean {
-  const full = p.repository?.full_name?.toLowerCase()
-  if (full === `${OWNER}/${REPO}`.toLowerCase()) return true
-  const n = (p.name ?? '').toLowerCase()
-  return n.includes('ear2finger')
-}
-
-async function fetchLatestFromPackages(): Promise<string | null> {
-  for (const packageType of ['container', 'npm'] as const) {
-    const listUrl = `${GITHUB_API}/users/${OWNER}/packages?package_type=${packageType}&per_page=100`
-    const listRes = await fetch(listUrl, { headers: HEADERS })
-    if (!listRes.ok) continue
-    const packages = (await listRes.json()) as GhPackage[]
-    if (!Array.isArray(packages) || !packages.length) continue
-
-    const match = packages.find(packageMatchesRepo)
-    if (!match?.name) continue
-
-    const verUrl = `${GITHUB_API}/users/${OWNER}/packages/${packageType}/${encodeURIComponent(
-      match.name,
-    )}/versions?per_page=50`
-    const verRes = await fetch(verUrl, { headers: HEADERS })
-    if (!verRes.ok) continue
-    const versions = (await verRes.json()) as GhPackageVersion[]
-    if (!Array.isArray(versions) || !versions.length) continue
-
-    const latest = pickLatestSemverFromVersions(versions)
-    if (latest) return latest
-  }
-  return null
-}
-
-async function fetchLatestFromReleases(): Promise<string | null> {
-  const url = `${GITHUB_API}/repos/${OWNER}/${REPO}/releases/latest`
-  const res = await fetch(url, { headers: HEADERS })
-  if (!res.ok) return null
-  const data = (await res.json()) as { tag_name?: string }
-  const tag = data.tag_name
-  if (typeof tag !== 'string') return null
-  const m = tag.match(/v?(\d+\.\d+\.\d+)/i)
-  return m ? m[1] : null
 }
 
 export type UpdateCheckResult =
   | {
       ok: true
       latest: string
-      source: 'packages' | 'releases'
       upToDate: boolean
     }
   | { ok: false; message: string }
 
 export async function checkGitHubForUpdate(currentSemver: string): Promise<UpdateCheckResult> {
   try {
-    let latest = await fetchLatestFromPackages()
-    let source: 'packages' | 'releases' = 'packages'
-    if (!latest) {
-      latest = await fetchLatestFromReleases()
-      source = 'releases'
-    }
+    const latest = await fetchLatestSemverFromReleases()
     if (!latest) {
       return {
         ok: false,
-        message: 'No published version found yet. See GitHub Packages when a build is published.',
+        message: 'No release found yet. See GitHub Releases for published builds.',
       }
     }
     const upToDate = compareSemver(currentSemver, latest) >= 0
-    return { ok: true, latest, source, upToDate }
+    return { ok: true, latest, upToDate }
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Network error'
     return { ok: false, message: msg }
