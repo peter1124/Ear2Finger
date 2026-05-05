@@ -17,10 +17,11 @@ import {
   type SetConfigPayload,
   type AIKeyHint,
 } from '../api'
+import { checkGitHubForUpdate, GITHUB_PACKAGES_URL } from '../lib/githubUpdate'
 
 type SettingsSection = 'ai-api-key' | 'about' | 'users'
 
-const APP_VERSION = `1.0.2 (${__APP_COMMIT__})`
+const APP_VERSION = `${__APP_SEMVER__} (${__APP_COMMIT__})`
 
 export default function Settings() {
   const navigate = useNavigate()
@@ -45,6 +46,9 @@ export default function Settings() {
   const [userFormError, setUserFormError] = useState<string | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<AdminUser | null>(null)
   const [deleteConfirming, setDeleteConfirming] = useState(false)
+
+  const [updateCheckLoading, setUpdateCheckLoading] = useState(false)
+  const [updateCheckMessage, setUpdateCheckMessage] = useState<string | null>(null)
 
   const isSuperuser = user?.is_superuser === true
 
@@ -80,6 +84,10 @@ export default function Settings() {
   useEffect(() => {
     if (activeSection === 'users' && isSuperuser) fetchUsers()
   }, [activeSection, isSuperuser, fetchUsers])
+
+  useEffect(() => {
+    if (activeSection !== 'about') setUpdateCheckMessage(null)
+  }, [activeSection])
 
   useEffect(() => {
     if (activeSection === 'ai-api-key') {
@@ -514,11 +522,55 @@ export default function Settings() {
                   <div className="flex flex-col items-center gap-3 text-left">
 
                     <dl className="mt-1 w-full text-sm space-y-3">
-                      <div className="flex flex-col">
+                      <div className="flex flex-col gap-1.5">
                         <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">
                           Version
                         </dt>
                         <dd className="mt-0.5 font-mono text-gray-900 break-all">{APP_VERSION}</dd>
+                        <div className="flex flex-col gap-1">
+                          <button
+                            type="button"
+                            disabled={updateCheckLoading}
+                            onClick={async () => {
+                              setUpdateCheckMessage(null)
+                              setUpdateCheckLoading(true)
+                              try {
+                                const r = await checkGitHubForUpdate(__APP_SEMVER__)
+                                if (!r.ok) {
+                                  setUpdateCheckMessage(r.message)
+                                  return
+                                }
+                                const src =
+                                  r.source === 'packages' ? 'GitHub Packages' : 'GitHub Releases'
+                                if (r.upToDate) {
+                                  setUpdateCheckMessage(
+                                    `You are up to date (${__APP_SEMVER__}). Latest on ${src}: ${r.latest}.`,
+                                  )
+                                } else {
+                                  setUpdateCheckMessage(
+                                    `Update available: ${r.latest} (you have ${__APP_SEMVER__}). See ${src} on GitHub.`,
+                                  )
+                                }
+                              } finally {
+                                setUpdateCheckLoading(false)
+                              }
+                            }}
+                            className="self-start px-2 py-1 text-xs font-medium text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {updateCheckLoading ? 'Checking…' : 'Check for updates'}
+                          </button>
+                          {updateCheckMessage && (
+                            <p className="text-xs text-gray-600 leading-snug">{updateCheckMessage}</p>
+                          )}
+                          <a
+                            href={GITHUB_PACKAGES_URL}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline"
+                          >
+                            Builds &amp; versions on GitHub Packages →
+                          </a>
+                        </div>
                       </div>
                       <div className="flex flex-col">
                         <dt className="text-xs font-medium uppercase tracking-wide text-gray-500">

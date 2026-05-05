@@ -1,6 +1,6 @@
 'use strict'
 
-const { app, BrowserWindow, dialog } = require('electron')
+const { app, BrowserWindow, dialog, shell } = require('electron')
 
 // Linux: avoid setuid chrome-sandbox requirement when the app is not installed setuid-root (typical dev + many user installs).
 if (process.platform === 'linux') {
@@ -425,6 +425,47 @@ async function startBackend(userData, log) {
   ])
 }
 
+function isLocalAppUrl(url) {
+  try {
+    const u = new URL(url)
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false
+    const h = u.hostname
+    return h === '127.0.0.1' || h === 'localhost' || h === '[::1]'
+  } catch {
+    return false
+  }
+}
+
+function openExternalLinksInSystemBrowser(win) {
+  const wc = win.webContents
+  wc.setWindowOpenHandler(({ url }) => {
+    if (isLocalAppUrl(url)) return { action: 'allow' }
+    try {
+      const u = new URL(url)
+      if (u.protocol === 'http:' || u.protocol === 'https:') {
+        setImmediate(() => {
+          shell.openExternal(url).catch(() => {})
+        })
+      }
+    } catch {
+      /* ignore */
+    }
+    return { action: 'deny' }
+  })
+  wc.on('will-navigate', (event, url) => {
+    if (isLocalAppUrl(url)) return
+    try {
+      const u = new URL(url)
+      if (u.protocol === 'http:' || u.protocol === 'https:') {
+        event.preventDefault()
+        shell.openExternal(url).catch(() => {})
+      }
+    } catch {
+      /* ignore */
+    }
+  })
+}
+
 function createWindow(loadUrl) {
   const icon = appIconPath()
   const winOpts = {
@@ -437,6 +478,7 @@ function createWindow(loadUrl) {
   }
   if (icon) winOpts.icon = icon
   mainWindow = new BrowserWindow(winOpts)
+  openExternalLinksInSystemBrowser(mainWindow)
   if (process.platform === 'darwin' && app.dock && icon) {
     try {
       app.dock.setIcon(icon)
