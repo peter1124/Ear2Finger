@@ -17,7 +17,7 @@ import {
   type SetConfigPayload,
   type AIKeyHint,
 } from '../api'
-import { checkGitHubForUpdate, GITHUB_PACKAGES_URL } from '../lib/githubUpdate'
+import { checkGitHubForUpdate, GITHUB_PACKAGES_URL } from '../utils/githubUpdate'
 
 type SettingsSection = 'ai-api-key' | 'about' | 'users'
 

@@ -18,7 +18,8 @@ audio/
 *.mp3
 eggs/
 .eggs/
-lib/
+# Only repo-root lib (Python venv layout); avoid ignoring frontend/src/lib, etc.
+/lib/
 lib64/
 parts/
 sdist/
