@@ -1,6 +1,32 @@
 # Ear2Finger
 
-A locally deployable web application that allows users to improve their English listening and dictation skills, **with an AI coach that analyzes your practice history and recommends what to study next**.
+A locally deployable web application for **English listening and dictation practice**: import YouTube videos with subtitles, practice sentence-by-sentence with per-word input and hints, track progress on a dashboard, and organize lessons in playlists.
+
+This repository also ships **with an AI coach** that analyzes your practice history and recommends what to study next (vector search via Qdrant and optional **Gemini** API keys in Settings). A **lite** deployment or branch **without** AI coach features, vector search, or external LLM API keys can use the **same SQLite schema** as the full app if you share or migrate a database.
+
+## Demo videos
+
+Open on YouTube: [Import a YouTube lesson](https://youtu.be/TEuXrHZ0VSE) · [Dictation practice](https://youtu.be/5z7yxVxZC1I)
+
+*(Inline previews below work in many Markdown viewers and doc sites. On [github.com](https://github.com) the raw HTML blocks may be stripped—use the links above.)*
+
+### 🎥 Import a YouTube lesson into Ear2Finger
+
+<div align="center">
+  <a href="https://youtu.be/TEuXrHZ0VSE">
+    <img src="https://img.youtube.com/vi/TEuXrHZ0VSE/hqdefault.jpg" alt="Import a YouTube lesson into Ear2Finger" width="1080"/>
+  </a>
+  <p><strong><a href="https://youtu.be/TEuXrHZ0VSE">📺 Watch: Import a YouTube lesson into Ear2Finger</a></strong></p>
+</div>
+
+### 🎥 Dictation practice in Ear2Finger
+
+<div align="center">
+  <a href="https://youtu.be/5z7yxVxZC1I">
+    <img src="https://img.youtube.com/vi/5z7yxVxZC1I/hqdefault.jpg" alt="Dictation practice in Ear2Finger" width="1080"/>
+  </a>
+  <p><strong><a href="https://youtu.be/5z7yxVxZC1I">📺 Watch: Dictation practice in Ear2Finger</a></strong></p>
+</div>
 
 ## Tech Stack
 
