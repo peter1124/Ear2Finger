@@ -3,10 +3,10 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, HttpUrl, field_validator
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from database import get_db, Video, Sentence, User, PlaylistVideo
+from database import get_db, Video, Sentence, User, PlaylistVideo, LearningProgress
 from auth import get_current_user
 from services.youtube_processor import YouTubeProcessor
-from services.qdrant_client import ingest_sentences_for_video
+from services.qdrant_client import delete_sentence_vectors_for_video, ingest_sentences_for_video
 import re
 import os
 
@@ -171,6 +171,19 @@ async def get_video_sentences(
     return sentences
 
 
+def _audio_media_type_for_path(path: str) -> str:
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".mp3":
+        return "audio/mpeg"
+    if ext in (".m4a", ".mp4"):
+        return "audio/mp4"
+    if ext == ".webm":
+        return "audio/webm"
+    if ext in (".ogg", ".opus"):
+        return "audio/ogg"
+    return "application/octet-stream"
+
+
 def _serve_audio_with_range(path: str, request: Request, media_type: str, filename: str):
     """Serve file with Range support so the browser can seek (currentTime)."""
     size = os.path.getsize(path)
@@ -230,7 +243,7 @@ async def get_video_audio(
     return _serve_audio_with_range(
         video.audio_file_path,
         request,
-        media_type="audio/mpeg",
+        media_type=_audio_media_type_for_path(video.audio_file_path),
         filename=os.path.basename(video.audio_file_path),
     )
 
@@ -241,8 +254,8 @@ async def delete_video(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Soft-delete a video: remove from all playlists and hide from UI.
-    Video, sentences, LearningProgress, and LessonSession are preserved for analysis."""
+    """Soft-delete a video: remove from playlists, delete subtitle rows and audio file,
+    clear vector index for this lesson. Video row and learning/session history stay for analysis."""
     video = db.query(Video).filter(
         Video.id == video_id,
         Video.user_id == current_user.id,
@@ -254,9 +267,28 @@ async def delete_video(
     # Remove from all playlists (lesson no longer visible)
     db.query(PlaylistVideo).filter(PlaylistVideo.video_id == video_id).delete()
 
-    # Soft-delete: keep Video row for LearningProgress/LessonSession FK
+    db.query(LearningProgress).filter(LearningProgress.video_id == video_id).update(
+        {LearningProgress.sentence_id: None},
+        synchronize_session=False,
+    )
+
+    db.query(Sentence).filter(Sentence.video_id == video_id).delete(
+        synchronize_session=False
+    )
+
+    ap = video.audio_file_path
+    if ap and os.path.isfile(ap):
+        try:
+            os.remove(ap)
+        except OSError:
+            pass
+    video.audio_file_path = None
+
     from datetime import datetime
+
     video.deleted_at = datetime.utcnow()
     db.commit()
+
+    delete_sentence_vectors_for_video(video_id)
 
     return {"message": "Lesson removed. Learning data preserved for analysis."}

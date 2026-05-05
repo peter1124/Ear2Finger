@@ -385,6 +385,61 @@ def search_sentences_by_queries(
 # -----------------------------------------------------------------------------
 
 
+def delete_sentence_vectors_for_video(video_id: int) -> None:
+    """
+    Remove sentence vectors for a DB video (e.g. before replacing sentences after
+    re-importing a soft-deleted lesson). Uses payload filter video_id.
+    """
+    try:
+        with _embedded_qdrant_lock():
+            ensure_collections()
+            client = get_qdrant_client()
+            flt = Filter(
+                must=[
+                    FieldCondition(
+                        key="video_id",
+                        match=MatchValue(value=int(video_id)),
+                    )
+                ]
+            )
+            point_ids: List[Any] = []
+            offset = None
+            while True:
+                records, next_offset = client.scroll(
+                    collection_name=COLLECTION_SENTENCES,
+                    scroll_filter=flt,
+                    limit=256,
+                    offset=offset,
+                    with_payload=False,
+                    with_vectors=False,
+                )
+                if not records:
+                    break
+                point_ids.extend(r.id for r in records)
+                if next_offset is None:
+                    break
+                offset = next_offset
+            if not point_ids:
+                return
+            batch = 512
+            for i in range(0, len(point_ids), batch):
+                client.delete(
+                    collection_name=COLLECTION_SENTENCES,
+                    points_selector=point_ids[i : i + batch],
+                )
+            logger.info(
+                "qdrant: deleted %s sentence vectors for video_id=%s",
+                len(point_ids),
+                video_id,
+            )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning(
+            "qdrant: delete_sentence_vectors_for_video video_id=%s failed: %s",
+            video_id,
+            exc,
+        )
+
+
 def ingest_sentences_for_video(video_id: int, user_id: int) -> None:
     """
     Background task: embed all sentences for a video and upsert into Qdrant.

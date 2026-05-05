@@ -1,15 +1,34 @@
 import yt_dlp
+import html
+import json
 import re
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 import tempfile
 import shutil
 from typing import List, Dict, Optional
 from sqlalchemy.orm import Session
-from database import Video, Sentence
+from database import Video, Sentence, LearningProgress
 import os
 
 class YouTubeProcessor:
+    # YouTube exposes multiple subtitle payloads per language; `json3` is common first
+    # in API metadata but is not SRT/VTT — prefer text-based formats, then json3.
+    _SUBTITLE_EXT_RANK = (
+        'vtt',
+        'srv1',
+        'srt',
+        'ttml',
+        'ttml+xml',
+        'ass',
+        'ssa',
+        'srv3',
+        'srv2',
+        'json3',
+        'json',
+    )
+
     def __init__(self, download_dir: str = None, audio_dir: str = None):
         # Use absolute paths relative to backend directory (or Electron userData via env)
         backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -30,6 +49,178 @@ class YouTubeProcessor:
     def _yt_dlp_cli():
         """Same interpreter + yt-dlp as `import yt_dlp` (Windows often has an older `yt-dlp` earlier on PATH)."""
         return [sys.executable, '-m', 'yt_dlp']
+
+    @staticmethod
+    def _clean_subtitle_display_text(text: str) -> str:
+        """Strip YouTube WebVTT/json3 inline timing and style tags (e.g. ``<00:00:06.799><c>``)."""
+        if not text:
+            return text
+        t = html.unescape(text)
+        t = re.sub(r'<\d{1,2}:\d{2}:\d{2}\.\d{3}>', '', t)
+        t = re.sub(r'<\d{1,2}:\d{2}\.\d{3}>', '', t)
+        t = re.sub(r'</?c[^>]*>', '', t, flags=re.I)
+        t = re.sub(r'</?v[^>]*>', '', t, flags=re.I)
+        return re.sub(r'\s+', ' ', t).strip()
+
+    def _dedupe_rolling_subtitle_cues(self, segments: List[Dict]) -> List[Dict]:
+        """
+        YouTube auto captions (json3 / VTT) often use rolling lines: each cue repeats
+        the previous phrase and appends words. Remove that overlap so text is not doubled.
+        """
+        if not segments:
+            return segments
+        out: List[Dict] = []
+        prev_raw = ""
+        prev_end: Optional[float] = None
+        gap_reset_s = 4.0
+        min_suffix = 3
+
+        for seg in segments:
+            st = float(seg["start_time"])
+            en = float(seg["end_time"])
+            t = (seg.get("text") or "").strip()
+            if not t:
+                continue
+
+            if prev_end is not None and st - prev_end > gap_reset_s:
+                prev_raw = ""
+
+            if prev_raw:
+                if t.startswith(prev_raw):
+                    display = t[len(prev_raw) :].strip()
+                else:
+                    max_k = min(len(prev_raw), len(t), 240)
+                    k = 0
+                    for cand in range(max_k, min_suffix - 1, -1):
+                        if t.startswith(prev_raw[-cand:]):
+                            k = cand
+                            break
+                    display = t[k:].strip() if k else t
+            else:
+                display = t
+
+            prev_raw = t
+            prev_end = en
+
+            if not display:
+                if out:
+                    out[-1]["end_time"] = max(float(out[-1]["end_time"]), en)
+                continue
+
+            out.append({"start_time": st, "end_time": en, "text": display})
+        return out
+
+    @classmethod
+    def _subtitle_ext_rank(cls, ext: Optional[str]) -> int:
+        e = (ext or '').lower()
+        try:
+            return cls._SUBTITLE_EXT_RANK.index(e)
+        except ValueError:
+            return len(cls._SUBTITLE_EXT_RANK)
+
+    def _fetch_first_parseable_subtitle(self, ydl, subtitle_list: List[Dict]) -> Optional[str]:
+        """Try subtitle URLs in format order until `parse_subtitles` yields segments."""
+        if not subtitle_list:
+            return None
+        ranked = sorted(subtitle_list, key=lambda x: self._subtitle_ext_rank(x.get('ext')))
+        for fmt in ranked:
+            url = fmt.get('url')
+            if not url:
+                continue
+            try:
+                raw = ydl.urlopen(url).read()
+                text = raw.decode('utf-8')
+            except Exception:
+                continue
+            if self.parse_subtitles(text):
+                return text
+        return None
+
+    def _cleanup_temp_audio(self, video_id: str) -> None:
+        prefix = f'{video_id}_temp'
+        if not os.path.isdir(self.audio_dir):
+            return
+        for name in os.listdir(self.audio_dir):
+            if name.startswith(prefix):
+                try:
+                    os.remove(os.path.join(self.audio_dir, name))
+                except OSError:
+                    pass
+
+    def _download_audio_via_python_ydl(
+        self, youtube_url: str, video_id: str, safe_title: str
+    ) -> Optional[str]:
+        """
+        Download audio using in-process yt_dlp (required when PyInstaller breaks ``-m yt_dlp``).
+        Tries FFmpeg MP3 extract first, then native m4a/webm if FFmpeg is unavailable.
+        """
+        temp_prefix = f'{video_id}_temp'
+        base_slug = f'{video_id}_{safe_title}'
+        temp_pattern = os.path.join(self.audio_dir, f'{temp_prefix}.%(ext)s')
+
+        def pick_temp_file(*suffixes: str) -> Optional[str]:
+            for name in os.listdir(self.audio_dir):
+                if not name.startswith(temp_prefix):
+                    continue
+                lower = name.lower()
+                for suf in suffixes:
+                    if lower.endswith(suf):
+                        return os.path.join(self.audio_dir, name)
+            return None
+
+        def finalize(ext: str, src_path: str) -> str:
+            dest = os.path.join(self.audio_dir, f'{base_slug}{ext}')
+            if os.path.exists(dest):
+                os.remove(dest)
+            shutil.move(src_path, dest)
+            return dest
+
+        self._cleanup_temp_audio(video_id)
+
+        opts_mp3 = {
+            'quiet': True,
+            'no_warnings': True,
+            'noplaylist': True,
+            'format': 'bestaudio/best',
+            'outtmpl': temp_pattern,
+            'postprocessors': [
+                {
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }
+            ],
+        }
+        try:
+            with yt_dlp.YoutubeDL(opts_mp3) as ydl_dl:
+                ydl_dl.download([youtube_url])
+        except Exception as e:
+            print(f"Warning: in-process yt-dlp MP3 extract failed: {e}")
+        else:
+            p = pick_temp_file('.mp3')
+            if p:
+                return finalize('.mp3', p)
+
+        self._cleanup_temp_audio(video_id)
+        opts_native = {
+            'quiet': True,
+            'no_warnings': True,
+            'noplaylist': True,
+            'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/ba/b',
+            'outtmpl': temp_pattern,
+        }
+        try:
+            with yt_dlp.YoutubeDL(opts_native) as ydl_dl:
+                ydl_dl.download([youtube_url])
+        except Exception as e:
+            print(f"Warning: in-process yt-dlp native audio download failed: {e}")
+            return None
+
+        for suf in ('.mp3', '.m4a', '.webm', '.opus', '.ogg'):
+            p = pick_temp_file(suf)
+            if p:
+                return finalize(suf, p)
+        return None
 
     def extract_video_info(self, youtube_url: str, video_id: str = None) -> Dict:
         """Extract video information, subtitles, and download MP3 audio using yt-dlp"""
@@ -138,32 +329,31 @@ class YouTubeProcessor:
                         # Fallback to Python API method
                         subtitles_data = self._extract_subtitles_via_api(ydl, info)
 
-                # Download MP3 audio file using command-line: yt-dlp -x --audio-format mp3 <URL>
+                # PyInstaller/Electron: `sys.executable` is the frozen backend, not Python, so
+                # `run_electron_backend.exe -m yt_dlp` fails without raising — only the API path works.
+                if not subtitles_data:
+                    subtitles_data = self._extract_subtitles_via_api(ydl, info)
+
+                # Audio: CLI works in dev (real Python). Packaged PyInstaller needs in-process yt-dlp.
                 audio_downloaded = False
                 if not os.path.exists(audio_file_path):
                     try:
-                        # Use yt-dlp command-line to download and convert to MP3
-                        # -x: extract audio only
-                        # --audio-format mp3: convert to MP3 format
                         temp_output = os.path.join(self.audio_dir, f'{video_id}_temp.%(ext)s')
                         cmd = self._yt_dlp_cli() + [
                             '--no-playlist',
-                            '-x',  # Extract audio only
+                            '-x',
                             '--audio-format', 'mp3',
                             '--output', temp_output,
                             '--quiet',
                             youtube_url,
                         ]
-
                         result = subprocess.run(
                             cmd,
                             capture_output=True,
                             text=True,
-                            timeout=300  # 5 minute timeout for audio download
+                            timeout=300,
                         )
-
                         if result.returncode == 0:
-                            # Find the downloaded MP3 file
                             for file in os.listdir(self.audio_dir):
                                 if file.startswith(f'{video_id}_temp') and file.endswith('.mp3'):
                                     temp_path = os.path.join(self.audio_dir, file)
@@ -171,24 +361,25 @@ class YouTubeProcessor:
                                         shutil.move(temp_path, audio_file_path)
                                         audio_downloaded = True
                                         break
-                        else:
-                            print(f"Warning: Audio download failed: {result.stderr}")
-                            audio_file_path = None
+                        elif result.stderr:
+                            print(f"Warning: Audio CLI failed: {result.stderr[:800]}")
                     except subprocess.TimeoutExpired:
                         print("Warning: Audio download timed out")
-                        audio_file_path = None
                     except FileNotFoundError:
-                        print("Warning: yt-dlp command not found. Cannot download audio.")
-                        audio_file_path = None
+                        print("Warning: yt-dlp CLI not available for audio.")
                     except Exception as e:
-                        # If audio download fails, continue without audio
-                        print(f"Warning: Failed to download audio: {str(e)}")
-                        # Check if FFmpeg might be missing
-                        if "ffmpeg" in str(e).lower():
-                            print("Note: FFmpeg is required for MP3 conversion. Install FFmpeg for audio download.")
-                        audio_file_path = None
+                        print(f"Warning: Audio CLI error: {e}")
+
+                    if not audio_downloaded:
+                        dl_path = self._download_audio_via_python_ydl(
+                            youtube_url, video_id, safe_title
+                        )
+                        if dl_path:
+                            audio_file_path = dl_path
+                            audio_downloaded = True
+                        else:
+                            audio_file_path = None
                 else:
-                    # Audio file already exists
                     audio_downloaded = True
 
                 return {
@@ -202,36 +393,22 @@ class YouTubeProcessor:
             raise Exception(f"Failed to extract video info: {str(e)}")
 
     def _extract_subtitles_via_api(self, ydl, info) -> Optional[str]:
-        """Fallback method to extract subtitles using Python API"""
-        subtitles_data = None
-
-        # Method 1: Try manual subtitles first
+        """Fetch subtitles via yt-dlp URLs; prefers VTT/SRT/XML over raw json3."""
         if 'subtitles' in info and info['subtitles']:
             for lang_code, subtitle_list in info['subtitles'].items():
                 if lang_code.startswith('en') or lang_code == 'en':
-                    if subtitle_list and len(subtitle_list) > 0:
-                        subtitle_url = subtitle_list[0].get('url')
-                        if subtitle_url:
-                            try:
-                                subtitles_data = ydl.urlopen(subtitle_url).read().decode('utf-8')
-                                break
-                            except:
-                                continue
+                    subtitles_data = self._fetch_first_parseable_subtitle(ydl, subtitle_list)
+                    if subtitles_data:
+                        return subtitles_data
 
-        # Method 2: Try automatic captions if manual subtitles not found
-        if not subtitles_data and 'automatic_captions' in info and info['automatic_captions']:
+        if 'automatic_captions' in info and info['automatic_captions']:
             for lang_code, caption_list in info['automatic_captions'].items():
                 if lang_code.startswith('en') or lang_code == 'en':
-                    if caption_list and len(caption_list) > 0:
-                        caption_url = caption_list[0].get('url')
-                        if caption_url:
-                            try:
-                                subtitles_data = ydl.urlopen(caption_url).read().decode('utf-8')
-                                break
-                            except:
-                                continue
+                    subtitles_data = self._fetch_first_parseable_subtitle(ydl, caption_list)
+                    if subtitles_data:
+                        return subtitles_data
 
-        return subtitles_data
+        return None
 
     @staticmethod
     def _is_punctuation_only(text: str) -> bool:
@@ -246,10 +423,88 @@ class YouTubeProcessor:
             return False
         return not any(ch.isalnum() for ch in stripped)
 
+    def _parse_youtube_json3(self, data: dict) -> List[Dict]:
+        """YouTube timedtext json3: events with tStartMs, dDurationMs, segs[].utf8."""
+        events = [e for e in (data.get('events') or []) if isinstance(e, dict) and e.get('segs')]
+        events.sort(key=lambda e: e.get('tStartMs', 0) or 0)
+        segments: List[Dict] = []
+        for i, ev in enumerate(events):
+            start_ms = ev.get('tStartMs', 0) or 0
+            dur_ms = ev.get('dDurationMs')
+            if dur_ms is None or dur_ms <= 0:
+                if i + 1 < len(events):
+                    next_ms = events[i + 1].get('tStartMs', start_ms) or start_ms
+                    dur_ms = max(50, next_ms - start_ms)
+                else:
+                    dur_ms = 2000
+            parts = []
+            for seg in ev.get('segs') or []:
+                if isinstance(seg, dict) and 'utf8' in seg:
+                    parts.append(seg['utf8'])
+            text = ''.join(parts).replace('\n', ' ').strip()
+            if not text:
+                continue
+            start = start_ms / 1000.0
+            end = start + dur_ms / 1000.0
+            segments.append({'start_time': start, 'end_time': end, 'text': text})
+        return segments
+
+    @staticmethod
+    def _parse_youtube_timedtext_xml(xml_content: str) -> List[Dict]:
+        """YouTube srv1 / timedtext XML: <text start=\"...\" dur=\"...\">."""
+        try:
+            root = ET.fromstring(xml_content)
+        except ET.ParseError:
+            return []
+
+        def local_tag(tag: str) -> str:
+            if isinstance(tag, str) and '}' in tag:
+                return tag.rsplit('}', 1)[-1]
+            return tag
+
+        raw: List[Dict] = []
+        for el in root.iter():
+            if local_tag(el.tag) != 'text':
+                continue
+            try:
+                start = float(el.attrib.get('start', 0) or 0)
+            except ValueError:
+                start = 0.0
+            try:
+                dur = float(el.attrib.get('dur', 0) or 0)
+            except ValueError:
+                dur = 0.0
+            text = ''.join(el.itertext()).strip()
+            if not text:
+                continue
+            raw.append({'start_time': start, 'end_time': start + (dur if dur > 0 else 2.0), 'text': text})
+
+        for i, seg in enumerate(raw):
+            if seg['end_time'] <= seg['start_time'] and i + 1 < len(raw):
+                seg['end_time'] = max(seg['start_time'] + 0.2, raw[i + 1]['start_time'])
+        return raw
+
     def parse_subtitles(self, subtitle_content: str) -> List[Dict]:
-        """Parse subtitle content (SRT or VTT format) into timestamped segments"""
+        """Parse subtitle content (SRT, VTT, YouTube json3, or timedtext XML) into segments."""
         if not subtitle_content:
             return []
+
+        stripped = subtitle_content.lstrip('\ufeff').strip()
+        if stripped.startswith('{'):
+            try:
+                data = json.loads(stripped)
+            except json.JSONDecodeError:
+                data = None
+            else:
+                if isinstance(data, dict) and 'events' in data:
+                    parsed = self._parse_youtube_json3(data)
+                    if parsed:
+                        return parsed
+
+        if stripped.startswith('<?xml') or stripped.startswith('<transcript'):
+            parsed = self._parse_youtube_timedtext_xml(stripped)
+            if parsed:
+                return parsed
 
         # Detect format by checking first few lines
         first_lines = subtitle_content.strip().split('\n')[:5]
@@ -314,7 +569,7 @@ class YouTubeProcessor:
                         segments.append({
                             'start_time': start_seconds,
                             'end_time': end_seconds,
-                            'text': ' '.join(text_lines)
+                            'text': ' '.join(text_lines),
                         })
                 else:
                     i += 1
@@ -393,22 +648,21 @@ class YouTubeProcessor:
         # segments are processed in chronological order.
         cleaned_segments: List[Dict] = []
         for s in segments:
-            text = s.get("text", "")
+            text = self._clean_subtitle_display_text(s.get("text", ""))
             if not text:
                 continue
-            stripped = text.strip()
-            if not stripped:
-                continue
-            if self._is_punctuation_only(stripped):
+            if self._is_punctuation_only(text):
                 continue
             cleaned = dict(s)
-            cleaned["text"] = stripped
+            cleaned["text"] = text
             cleaned_segments.append(cleaned)
 
         sorted_segments = sorted(
             cleaned_segments,
             key=lambda s: s["start_time"],
         )
+
+        sorted_segments = self._dedupe_rolling_subtitle_cues(sorted_segments)
 
         merged_segments: List[Dict] = []
         current: Optional[Dict] = None
@@ -508,23 +762,90 @@ class YouTubeProcessor:
             if existing_video.user_id is not None and existing_video.user_id != user_id:
                 raise ValueError("This video URL was already imported by another user.")
 
-            # If this video was soft-deleted for this user, restore it instead of
-            # treating it as missing. This allows re-importing a previously deleted
-            # lesson without causing downstream "Video not found" errors.
-            if getattr(existing_video, "deleted_at", None) is not None:
+            was_deleted = getattr(existing_video, "deleted_at", None) is not None
+
+            if was_deleted:
                 existing_video.deleted_at = None
-                db.commit()
 
             if existing_video.user_id != user_id:
                 existing_video.user_id = user_id
+
+            if not was_deleted:
                 db.commit()
-            sentences = db.query(Sentence).filter(Sentence.video_id == existing_video.id).order_by(Sentence.sentence_index).all()
+                sentences = (
+                    db.query(Sentence)
+                    .filter(Sentence.video_id == existing_video.id)
+                    .order_by(Sentence.sentence_index)
+                    .all()
+                )
+                return {
+                    'video_id': existing_video.id,
+                    'title': existing_video.title,
+                    'duration': existing_video.duration,
+                    'sentence_count': len(sentences),
+                    'message': 'Video already processed',
+                }
+
+            # Soft-deleted lesson restored: re-fetch from YouTube and replace sentences/audio.
+            db.query(LearningProgress).filter(
+                LearningProgress.video_id == existing_video.id
+            ).update({LearningProgress.sentence_id: None}, synchronize_session=False)
+
+            old_audio = existing_video.audio_file_path
+            if old_audio and os.path.isfile(old_audio):
+                try:
+                    os.remove(old_audio)
+                except OSError:
+                    pass
+            existing_video.audio_file_path = None
+
+            db.query(Sentence).filter(Sentence.video_id == existing_video.id).delete(
+                synchronize_session=False
+            )
+            db.flush()
+
+            video_info = self.extract_video_info(youtube_url)
+
+            if not video_info.get('subtitles'):
+                raise Exception("No subtitles available for this video")
+
+            segments = self.parse_subtitles(video_info['subtitles'])
+
+            if not segments:
+                raise Exception("Could not parse subtitles from video")
+
+            sentences = self.segment_into_sentences(segments)
+
+            if not sentences:
+                raise Exception("Could not segment subtitles into sentences")
+
+            existing_video.title = video_info['title']
+            existing_video.duration = video_info['duration']
+            existing_video.audio_file_path = video_info.get('audio_file_path')
+
+            for sentence_data in sentences:
+                db.add(
+                    Sentence(
+                        video_id=existing_video.id,
+                        sentence_text=sentence_data['sentence_text'],
+                        start_time=sentence_data['start_time'],
+                        end_time=sentence_data['end_time'],
+                        sentence_index=sentence_data['sentence_index'],
+                    )
+                )
+
+            db.commit()
+
+            from services.qdrant_client import delete_sentence_vectors_for_video
+
+            delete_sentence_vectors_for_video(existing_video.id)
+
             return {
                 'video_id': existing_video.id,
                 'title': existing_video.title,
                 'duration': existing_video.duration,
                 'sentence_count': len(sentences),
-                'message': 'Video already processed'
+                'message': 'Video processed successfully',
             }
 
         # Extract video info and subtitles
@@ -533,7 +854,6 @@ class YouTubeProcessor:
         if not video_info.get('subtitles'):
             raise Exception("No subtitles available for this video")
 
-        # Parse subtitles (SRT or VTT format)
         segments = self.parse_subtitles(video_info['subtitles'])
 
         if not segments:
