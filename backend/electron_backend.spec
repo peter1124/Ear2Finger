@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec for the Electron-packaged FastAPI backend (run_electron_backend entry).
+PyInstaller spec for the standalone FastAPI backend (bundled with frontend/dist and bin/).
 Build: from repo root, `bash scripts/pyinstaller-build-backend.sh`
 """
 import os
@@ -10,6 +10,7 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 block_cipher = None
 
 _backend_dir = os.path.dirname(os.path.abspath(SPEC))
+_project_dir = os.path.dirname(_backend_dir)
 
 datas = []
 binaries = []
@@ -23,6 +24,7 @@ for pkg in (
     "multipart",
     "yt_dlp",
     "langchain_google_genai",
+    "langchain_openai",
     "langchain_core",
     "qdrant_client",
     "filetype",
@@ -45,6 +47,7 @@ for pkg in (
     "pydantic_core",
     "annotated_types",
     "typing_extensions",
+    "psutil",
 ):
     try:
         d, b, h = collect_all(pkg)
@@ -86,6 +89,7 @@ hiddenimports += [
     "routers.health",
     "routers.dictation",
     "routers.youtube",
+    "routers.local_media",
     "routers.playlists",
     "routers.auth",
     "routers.user_config",
@@ -99,7 +103,27 @@ hiddenimports += [
     "services.ai_client_factory",
     "services.qdrant_client",
     "services.youtube_processor",
+    "services.local_processor",
+    "services.base_processor",
 ]
+
+# Bundle frontend/dist (static files served by FastAPI)
+_frontend_dist = os.path.join(_project_dir, "frontend", "dist")
+if os.path.isdir(_frontend_dist):
+    for root, dirs, files in os.walk(_frontend_dist):
+        for f in files:
+            src = os.path.join(root, f)
+            rel = os.path.relpath(os.path.dirname(src), _project_dir)
+            datas.append((src, rel))
+
+# Bundle bin/ directory (ffmpeg, yt-dlp, etc.)
+_bin_dir = os.path.join(_project_dir, "bin")
+if os.path.isdir(_bin_dir):
+    for root, dirs, files in os.walk(_bin_dir):
+        for f in files:
+            src = os.path.join(root, f)
+            rel = os.path.relpath(os.path.dirname(src), _project_dir)
+            datas.append((src, rel))
 
 a = Analysis(
     ["run_electron_backend.py"],
@@ -124,12 +148,12 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="run_electron_backend",
+    name="backend",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=True,
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -145,5 +169,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name="run_electron_backend",
+    name="backend",
 )

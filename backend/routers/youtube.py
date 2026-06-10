@@ -7,9 +7,11 @@ from database import get_db, Video, Sentence, User, PlaylistVideo, LearningProgr
 from auth import get_current_user
 from services.youtube_processor import YouTubeProcessor
 from services.qdrant_client import delete_sentence_vectors_for_video, ingest_sentences_for_video
+import logging
 import re
 import os
 
+logger = logging.getLogger("youtube")
 router = APIRouter()
 
 # Lazy init: importing this module must not mkdir under backend/ (read-only in AppImage / deb).
@@ -29,15 +31,18 @@ class YouTubeUrlRequest(BaseModel):
     @field_validator('url')
     @classmethod
     def validate_url(cls, v):
-        """Validate and normalize YouTube URL (strip whitespace and trailing punctuation)."""
+        """Validate and normalize URL for YouTube or Bilibili (strip whitespace and trailing punctuation)."""
         v = v.strip().rstrip(',;')
         youtube_pattern = re.compile(
             r'(https?://)?(www\.)?(youtube|youtu|youtube-nocookie)\.(com|be)/'
             r'(watch\?v=|embed/|v/|.+\?v=)?([^&=%\?]{11})'
         )
-        if not youtube_pattern.match(v):
-            raise ValueError("Invalid YouTube URL")
-        return v
+        bilibili_pattern = re.compile(
+            r'(https?://)?(www\.)?(bilibili\.com|b23\.tv)/'
+        )
+        if youtube_pattern.match(v) or bilibili_pattern.match(v):
+            return v
+        raise ValueError("Invalid YouTube or Bilibili URL")
 
 
 class VideoResponse(BaseModel):
@@ -96,9 +101,11 @@ async def process_youtube_video(
 
         return ProcessVideoResponse(**result)
     except ValueError as e:
+        logger.warning("YouTube processing validation failed: %s", e)
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to process video: {str(e)}")
+        logger.exception("Unexpected error processing YouTube video")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/youtube/videos", response_model=List[VideoResponse])

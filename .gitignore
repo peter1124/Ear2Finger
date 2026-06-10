@@ -240,3 +240,6 @@ frontend/*.local
 # OS
 .DS_Store
 Thumbs.db
+
+# Local binaries
+bin/

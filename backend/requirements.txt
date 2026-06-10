@@ -11,3 +11,5 @@ python-jose[cryptography]==3.3.0
 qdrant-client>=1.7.0
 langchain-core
 langchain-google-genai
+langchain-openai
+psutil

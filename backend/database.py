@@ -3,9 +3,12 @@ from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
 import os
+import config
 
 # Database URL
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./ear2finger.db")
+# Default to a local path in storage for desktop mode
+_default_db_path = os.path.join(config.STORAGE_DIR, "ear2finger.db")
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{_default_db_path}")
 
 # Create engine
 engine = create_engine(

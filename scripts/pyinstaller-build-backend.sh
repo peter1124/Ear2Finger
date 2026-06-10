@@ -30,11 +30,11 @@ echo "PyInstaller (onedir, this may take 1–5+ minutes)..."
   --workpath "$WORK" \
   --noconfirm
 
-APP_DIR="$OUT_ROOT/run_electron_backend"
+APP_DIR="$OUT_ROOT/backend"
 if [[ "$(uname -s)" == MINGW* ]] || [[ "$(uname -s)" == MSYS_NT* ]] || [[ "$(uname -s)" == CYGWIN_NT* ]]; then
-  BIN="$APP_DIR/run_electron_backend.exe"
+  BIN="$APP_DIR/backend.exe"
 else
-  BIN="$APP_DIR/run_electron_backend"
+  BIN="$APP_DIR/backend"
 fi
 
 if [[ ! -e "$BIN" ]]; then

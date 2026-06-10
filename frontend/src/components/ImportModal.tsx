@@ -11,12 +11,22 @@ interface Playlist {
 interface ImportModalProps {
   isOpen: boolean
   onClose: () => void
-  onImport: (payload: { url: string; playlistId: number }) => void
+  onImport: (payload: {
+    type: 'youtube' | 'local'
+    url?: string
+    filePath?: string
+    subtitlePath?: string
+    playlistId: number
+  }) => void
   defaultPlaylistId?: number | null
 }
 
 export default function ImportModal({ isOpen, onClose, onImport, defaultPlaylistId }: ImportModalProps) {
+  const [activeTab, setActiveTab] = useState<'youtube' | 'local'>('youtube')
   const [youtubeUrl, setYoutubeUrl] = useState('')
+  const [mediaPath, setMediaPath] = useState('')
+  const [subtitlePath, setSubtitlePath] = useState('')
+  
   const [playlists, setPlaylists] = useState<Playlist[]>([])
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<number | null>(null)
   const [newPlaylistName, setNewPlaylistName] = useState('')
@@ -27,6 +37,8 @@ export default function ImportModal({ isOpen, onClose, onImport, defaultPlaylist
     if (isOpen) {
       fetchPlaylists()
       setYoutubeUrl('')
+      setMediaPath('')
+      setSubtitlePath('')
       setSelectedPlaylistId(defaultPlaylistId || null)
       setNewPlaylistName('')
       setError(null)
@@ -70,18 +82,35 @@ export default function ImportModal({ isOpen, onClose, onImport, defaultPlaylist
   }
 
   const handleImport = () => {
-    if (!youtubeUrl.trim()) {
-      setError('Please enter a YouTube URL')
-      return
-    }
-
     if (!selectedPlaylistId) {
       setError('Please select or create a playlist')
       return
     }
 
-    setError(null)
-    onImport({ url: youtubeUrl.trim(), playlistId: selectedPlaylistId })
+    if (activeTab === 'youtube') {
+      if (!youtubeUrl.trim()) {
+        setError('Please enter a YouTube URL')
+        return
+      }
+      setError(null)
+      onImport({
+        type: 'youtube',
+        url: youtubeUrl.trim(),
+        playlistId: selectedPlaylistId
+      })
+    } else {
+      if (!mediaPath.trim()) {
+        setError('Please enter a media file path')
+        return
+      }
+      setError(null)
+      onImport({
+        type: 'local',
+        filePath: mediaPath.trim(),
+        subtitlePath: subtitlePath.trim() || undefined,
+        playlistId: selectedPlaylistId
+      })
+    }
     onClose()
   }
 
@@ -93,7 +122,7 @@ export default function ImportModal({ isOpen, onClose, onImport, defaultPlaylist
         <div className="p-6">
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-xl font-semibold text-gray-900">Import YouTube Audio & Subtitles</h2>
+            <h2 className="text-xl font-semibold text-gray-900">Import English Lesson</h2>
             <button
               onClick={onClose}
               className="text-gray-400 hover:text-gray-600 transition-colors"
@@ -104,21 +133,85 @@ export default function ImportModal({ isOpen, onClose, onImport, defaultPlaylist
             </button>
           </div>
 
+          {/* Tabs */}
+          <div className="flex border-b border-gray-200 mb-6">
+            <button
+              onClick={() => {
+                setActiveTab('youtube')
+                setError(null)
+              }}
+              className={`flex-1 py-2 text-center font-medium text-sm border-b-2 transition-colors ${
+                activeTab === 'youtube'
+                  ? 'border-indigo-600 text-indigo-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              YouTube URL
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab('local')
+                setError(null)
+              }}
+              className={`flex-1 py-2 text-center font-medium text-sm border-b-2 transition-colors ${
+                activeTab === 'local'
+                  ? 'border-indigo-600 text-indigo-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Local File
+            </button>
+          </div>
+
           <>
-            {/* YouTube URL Input */}
-            <div className="mb-6">
-              <label htmlFor="youtube-url" className="block text-sm font-medium text-gray-700 mb-2">
-                YouTube URL
-              </label>
-              <input
-                id="youtube-url"
-                type="text"
-                value={youtubeUrl}
-                onChange={(e) => setYoutubeUrl(e.target.value)}
-                placeholder="https://www.youtube.com/watch?v=..."
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              />
-            </div>
+            {/* YouTube URL Input Tab */}
+            {activeTab === 'youtube' && (
+              <div className="mb-6">
+                <label htmlFor="youtube-url" className="block text-sm font-medium text-gray-700 mb-2">
+                  YouTube URL
+                </label>
+                <input
+                  id="youtube-url"
+                  type="text"
+                  value={youtubeUrl}
+                  onChange={(e) => setYoutubeUrl(e.target.value)}
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                />
+              </div>
+            )}
+
+            {/* Local File Input Tab */}
+            {activeTab === 'local' && (
+              <div className="mb-6 space-y-4">
+                <div>
+                  <label htmlFor="media-path" className="block text-sm font-medium text-gray-700 mb-2">
+                    Media File Path (Absolute)
+                  </label>
+                  <input
+                    id="media-path"
+                    type="text"
+                    value={mediaPath}
+                    onChange={(e) => setMediaPath(e.target.value)}
+                    placeholder="e.g. C:\Videos\lesson1.mp4"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="subtitle-path" className="block text-sm font-medium text-gray-700 mb-2">
+                    Subtitle File Path (Optional .srt/.vtt)
+                  </label>
+                  <input
+                    id="subtitle-path"
+                    type="text"
+                    value={subtitlePath}
+                    onChange={(e) => setSubtitlePath(e.target.value)}
+                    placeholder="e.g. C:\Videos\lesson1.srt"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+            )}
 
             {/* Playlist Selection */}
             <div className="mb-6">
@@ -197,7 +290,11 @@ export default function ImportModal({ isOpen, onClose, onImport, defaultPlaylist
               </button>
               <button
                 onClick={handleImport}
-                disabled={!youtubeUrl.trim() || !selectedPlaylistId}
+                disabled={
+                  selectedPlaylistId === null ||
+                  (activeTab === 'youtube' && !youtubeUrl.trim()) ||
+                  (activeTab === 'local' && !mediaPath.trim())
+                }
                 className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors"
               >
                 Import

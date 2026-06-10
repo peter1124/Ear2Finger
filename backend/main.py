@@ -1,4 +1,5 @@
 import os
+import time
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,6 +9,7 @@ from routers import (
     health,
     dictation,
     youtube,
+    local_media,
     playlists,
     auth,
     user_config,
@@ -24,6 +26,16 @@ app = FastAPI(
     description="API for English listening and dictation practice",
     version="1.0.2"
 )
+
+app.state.last_active_time = time.time()
+
+@app.middleware("http")
+async def update_last_active(request, call_next):
+    path = request.url.path
+    # Exclude health check from heartbeat updates to prevent false active state
+    if not path.endswith("/health"):
+        request.app.state.last_active_time = time.time()
+    return await call_next(request)
 
 # Initialize database on startup
 @app.on_event("startup")
@@ -57,6 +69,7 @@ app.add_middleware(
 app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(dictation.router, prefix="/api", tags=["dictation"])
 app.include_router(youtube.router, prefix="/api", tags=["youtube"])
+app.include_router(local_media.router, prefix="/api", tags=["local"])
 app.include_router(playlists.router, prefix="/api", tags=["playlists"])
 app.include_router(auth.router, prefix="/api", tags=["auth"])
 app.include_router(user_config.router, prefix="/api", tags=["user"])
@@ -67,6 +80,13 @@ app.include_router(ai_keys.router, prefix="/api", tags=["user"])
 app.include_router(ai_coach.router, prefix="/api", tags=["ai-coach"])
 
 _STATIC_DIR = os.getenv("ELECTRON_STATIC_DIR", "").strip()
+
+# Auto-detect frontend/dist for standalone web mode
+if not _STATIC_DIR:
+    _backend_dir = os.path.dirname(os.path.abspath(__file__))
+    _candidate = os.path.join(os.path.dirname(_backend_dir), "frontend", "dist")
+    if os.path.isdir(_candidate):
+        _STATIC_DIR = _candidate
 
 
 @app.get("/")
@@ -81,11 +101,11 @@ async def root():
 if _STATIC_DIR and os.path.isdir(_STATIC_DIR):
     _assets = os.path.join(_STATIC_DIR, "assets")
     if os.path.isdir(_assets):
-        app.mount("/assets", StaticFiles(directory=_assets), name="electron_assets")
+        app.mount("/assets", StaticFiles(directory=_assets), name="static_assets")
 
     @app.get("/{spa_path:path}")
     async def spa_fallback(spa_path: str):
-        """Client-side routes (e.g. /workspace) when the UI is served from FastAPI."""
+        """Client-side SPA fallback — serves index.html for React Router paths."""
         if spa_path.startswith("api"):
             raise HTTPException(status_code=404)
         if spa_path.startswith("assets"):

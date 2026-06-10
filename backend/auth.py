@@ -17,8 +17,8 @@ SECRET_KEY = os.getenv("SECRET_KEY", "ear2finger-dev-secret-change-in-production
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
-# Use built-in pbkdf2_sha256 so registration works even when bcrypt has version issues
-pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
+# Use multiple schemes to support both bcrypt (migration) and pbkdf2_sha256 (safe default)
+pwd_context = CryptContext(schemes=["bcrypt", "pbkdf2_sha256"], deprecated="auto")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:

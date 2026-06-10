@@ -158,17 +158,25 @@ export async function fetchMe(): Promise<UserInfo> {
   return data
 }
 
-/** This app only supports Google Gemini for LLM and embeddings. */
-export type AIProvider = 'gemini'
+/** This app supports Google Gemini, OpenAI, and DeepSeek for LLM. */
+export type AIProvider = 'gemini' | 'openai' | 'deepseek'
 
 export interface AIConfig {
   ai_provider: AIProvider
   has_gemini_api_key: boolean
+  has_openai_api_key: boolean
+  has_deepseek_api_key: boolean
+  openai_api_base: string | null
+  deepseek_api_base: string | null
 }
 
 export interface SetConfigPayload {
   ai_provider?: AIProvider
   gemini_api_key?: string | null
+  openai_api_key?: string | null
+  deepseek_api_key?: string | null
+  openai_api_base?: string | null
+  deepseek_api_base?: string | null
   // Allow future non-AI config keys without tightening this type too much
   [key: string]: string | number | boolean | null | undefined
 }
@@ -196,31 +204,31 @@ export interface ListAIKeysResponse {
   keys: AIKeyHint[]
 }
 
-export async function listAIKeys(): Promise<ListAIKeysResponse> {
+export async function listAIKeys(provider: AIProvider): Promise<ListAIKeysResponse> {
   const { data } = await api.get<ListAIKeysResponse>('/api/user/ai-keys', {
-    params: { provider: 'gemini' satisfies AIProvider },
+    params: { provider },
   })
   return data
 }
 
-export async function addAIKey(key: string, makeActive = true): Promise<AIKeyHint> {
+export async function addAIKey(provider: AIProvider, key: string, makeActive = true): Promise<AIKeyHint> {
   const { data } = await api.post<AIKeyHint>('/api/user/ai-keys', {
-    provider: 'gemini' satisfies AIProvider,
+    provider,
     key,
     make_active: makeActive,
   })
   return data
 }
 
-export async function activateAIKey(keyId: string): Promise<void> {
+export async function activateAIKey(provider: AIProvider, keyId: string): Promise<void> {
   await api.post('/api/user/ai-keys/' + encodeURIComponent(keyId) + '/activate', null, {
-    params: { provider: 'gemini' satisfies AIProvider },
+    params: { provider },
   })
 }
 
-export async function deleteAIKey(keyId: string): Promise<void> {
+export async function deleteAIKey(provider: AIProvider, keyId: string): Promise<void> {
   await api.delete('/api/user/ai-keys/' + encodeURIComponent(keyId), {
-    params: { provider: 'gemini' satisfies AIProvider },
+    params: { provider },
   })
 }
 

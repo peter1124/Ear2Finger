@@ -16,6 +16,7 @@ import {
   type AdminUser,
   type SetConfigPayload,
   type AIKeyHint,
+  type AIProvider,
 } from '../api'
 import { checkGitHubForUpdate, GITHUB_RELEASES_URL } from '../utils/githubUpdate'
 
@@ -29,7 +30,10 @@ export default function Settings() {
   const [activeSection, setActiveSection] = useState<SettingsSection>('ai-api-key')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [apiKey, setApiKey] = useState('')
+  const [currentProvider, setCurrentProvider] = useState<AIProvider>('gemini')
   const [hasGeminiKey, setHasGeminiKey] = useState(false)
+  const [hasOpenaiKey, setHasOpenaiKey] = useState(false)
+  const [hasDeepseekKey, setHasDeepseekKey] = useState(false)
   const [aiConfigError, setAiConfigError] = useState<string | null>(null)
   const [aiKeys, setAiKeys] = useState<AIKeyHint[]>([])
   const [aiKeysLoading, setAiKeysLoading] = useState(false)
@@ -62,10 +66,10 @@ export default function Settings() {
       .finally(() => setUsersLoading(false))
   }, [isSuperuser])
 
-  const loadAIKeys = useCallback(() => {
+  const loadAIKeys = useCallback((provider: AIProvider) => {
     setAiKeysLoading(true)
     setAiKeysError(null)
-    listAIKeys()
+    listAIKeys(provider)
       .then((res) => setAiKeys(res.keys))
       .catch(() => {
         setAiKeysError('Failed to load API keys')
@@ -76,7 +80,10 @@ export default function Settings() {
   useEffect(() => {
     getConfig()
       .then((c) => {
+        setCurrentProvider(c.ai_provider || 'gemini')
         setHasGeminiKey(Boolean(c.has_gemini_api_key))
+        setHasOpenaiKey(Boolean(c.has_openai_api_key))
+        setHasDeepseekKey(Boolean(c.has_deepseek_api_key))
       })
       .catch(() => {})
   }, [])
@@ -91,9 +98,9 @@ export default function Settings() {
 
   useEffect(() => {
     if (activeSection === 'ai-api-key') {
-      loadAIKeys()
+      loadAIKeys(currentProvider)
     }
-  }, [activeSection, loadAIKeys])
+  }, [activeSection, currentProvider, loadAIKeys])
 
   useEffect(() => {
     const mq = window.matchMedia('(min-width: 768px)')
@@ -182,17 +189,21 @@ export default function Settings() {
     setAiConfigError(null)
     try {
       const trimmedKey = apiKey.trim()
+      const payload: SetConfigPayload = { ai_provider: currentProvider }
+
       if (trimmedKey) {
-        await addAIKey(trimmedKey, true)
-        await setConfig({ ai_provider: 'gemini' } satisfies SetConfigPayload)
-      } else {
-        await setConfig({ ai_provider: 'gemini' } satisfies SetConfigPayload)
+        await addAIKey(currentProvider, trimmedKey, true)
       }
+      
+      await setConfig(payload)
       setApiKey('')
 
       const c = await getConfig()
+      setCurrentProvider(c.ai_provider || 'gemini')
       setHasGeminiKey(Boolean(c.has_gemini_api_key))
-      loadAIKeys()
+      setHasOpenaiKey(Boolean(c.has_openai_api_key))
+      setHasDeepseekKey(Boolean(c.has_deepseek_api_key))
+      loadAIKeys(currentProvider)
       console.log('Settings saved')
     } catch (e: unknown) {
       const ax = e as { response?: { data?: { detail?: string } } }
@@ -204,11 +215,14 @@ export default function Settings() {
   const handleActivateKey = async (keyId: string) => {
     setAiConfigError(null)
     try {
-      await activateAIKey(keyId)
-      await setConfig({ ai_provider: 'gemini' } satisfies SetConfigPayload)
+      await activateAIKey(currentProvider, keyId)
+      await setConfig({ ai_provider: currentProvider } satisfies SetConfigPayload)
       const c = await getConfig()
+      setCurrentProvider(c.ai_provider || 'gemini')
       setHasGeminiKey(Boolean(c.has_gemini_api_key))
-      loadAIKeys()
+      setHasOpenaiKey(Boolean(c.has_openai_api_key))
+      setHasDeepseekKey(Boolean(c.has_deepseek_api_key))
+      loadAIKeys(currentProvider)
     } catch (e: unknown) {
       const ax = e as { response?: { data?: { detail?: string } } }
       setAiConfigError(ax.response?.data?.detail ?? 'Failed to activate API key')
@@ -218,10 +232,13 @@ export default function Settings() {
   const handleDeleteKey = async (keyId: string) => {
     setAiConfigError(null)
     try {
-      await deleteAIKey(keyId)
+      await deleteAIKey(currentProvider, keyId)
       const c = await getConfig()
+      setCurrentProvider(c.ai_provider || 'gemini')
       setHasGeminiKey(Boolean(c.has_gemini_api_key))
-      loadAIKeys()
+      setHasOpenaiKey(Boolean(c.has_openai_api_key))
+      setHasDeepseekKey(Boolean(c.has_deepseek_api_key))
+      loadAIKeys(currentProvider)
     } catch (e: unknown) {
       const ax = e as { response?: { data?: { detail?: string } } }
       setAiConfigError(ax.response?.data?.detail ?? 'Failed to delete API key')
@@ -394,14 +411,35 @@ export default function Settings() {
             <div className="w-full max-w-3xl">
               <h1 className="text-2xl font-bold text-gray-900 mb-2">AI API-KEY</h1>
               <p className="text-sm text-gray-600 mb-6">
-                AI uses <strong className="text-gray-900">Google Gemini</strong> for the coach and for embeddings (Qdrant).
-                {hasGeminiKey ? ' • API key configured' : ' • No API key saved yet'}
+                Configure your AI providers (Google Gemini, OpenAI, or DeepSeek) for the coach and for embeddings.
+                {currentProvider === 'gemini' && (hasGeminiKey ? ' • Gemini configured' : ' • No Gemini key saved')}
+                {currentProvider === 'openai' && (hasOpenaiKey ? ' • OpenAI configured' : ' • No OpenAI key saved')}
+                {currentProvider === 'deepseek' && (hasDeepseekKey ? ' • DeepSeek configured' : ' • No DeepSeek key saved')}
               </p>
 
               <div className="space-y-6">
                 {aiConfigError && (
                   <div className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{aiConfigError}</div>
                 )}
+
+                {/* Provider Dropdown */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    AI Provider
+                  </label>
+                  <select
+                    value={currentProvider}
+                    onChange={(e) => setCurrentProvider(e.target.value as AIProvider)}
+                    className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  >
+                    <option value="gemini">Google Gemini</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="deepseek">DeepSeek</option>
+                  </select>
+                </div>
+
+
+
                 {/* API Key Text Area */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -411,9 +449,13 @@ export default function Settings() {
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
                     placeholder={
-                      hasGeminiKey
-                        ? 'Key is configured. Paste a new key to replace it.'
-                        : 'Enter your Gemini API key here...'
+                      currentProvider === 'gemini' && hasGeminiKey
+                        ? 'Gemini key is configured. Paste a new key to replace it.'
+                        : currentProvider === 'openai' && hasOpenaiKey
+                        ? 'OpenAI key is configured. Paste a new key to replace it.'
+                        : currentProvider === 'deepseek' && hasDeepseekKey
+                        ? 'DeepSeek key is configured. Paste a new key to replace it.'
+                        : `Enter your ${currentProvider === 'gemini' ? 'Gemini' : currentProvider === 'openai' ? 'OpenAI' : 'DeepSeek'} API key here...`
                     }
                     rows={8}
                     className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
@@ -424,7 +466,7 @@ export default function Settings() {
                       onClick={handleApply}
                       className="px-4 py-2 bg-gray-900 text-white font-medium rounded-lg hover:bg-gray-800 transition-colors"
                     >
-                      ADD
+                      ADD / SAVE
                     </button>
                   </div>
                 </div>
@@ -450,8 +492,8 @@ export default function Settings() {
                         >
                           <div className="flex flex-col">
                             <span className="text-sm text-gray-900">
-                              <span className="mr-2 inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-800">
-                                Gemini
+                              <span className="mr-2 inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-800 uppercase">
+                                {k.provider}
                               </span>
                               …{k.last4 || '????'}
                               {k.is_active && (

@@ -1,13 +1,44 @@
 """Application configuration. Load from environment (e.g. .env)."""
 import os
+import sys
 
-# Qdrant vector store
-# Embedded (desktop): set QDRANT_LOCAL_PATH to a writable directory — uses in-process Qdrant (no server binary).
-# Server / Docker: QDRANT_URL=http://localhost:6333, QDRANT_API_KEY optional.
+# --- Path Management ---
+
+# Determine if we are running as a bundled executable or a script
+if getattr(sys, 'frozen', False):
+    # PyInstaller bundled environment
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    # Standard Python environment
+    # Note: We assume this file is in 'backend/config.py'
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Define key directories
+BIN_DIR = os.path.join(BASE_DIR, "bin")
+STORAGE_DIR = os.path.join(BASE_DIR, "storage")
+DOWNLOAD_DIR = os.path.join(STORAGE_DIR, "downloads")
+AUDIO_DIR = os.path.join(STORAGE_DIR, "audio")
+
+# Ensure directories exist
+os.makedirs(BIN_DIR, exist_ok=True)
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+os.makedirs(AUDIO_DIR, exist_ok=True)
+
+# Inject BIN_DIR into PATH to ensure external tools (ffmpeg, yt-dlp) are found
+if os.path.isdir(BIN_DIR):
+    # Prepend to PATH so bundled binaries take precedence
+    os.environ["PATH"] = BIN_DIR + os.path.pathsep + os.environ.get("PATH", "")
+
+
+# --- Qdrant vector store ---
 QDRANT_LOCAL_PATH = os.getenv("QDRANT_LOCAL_PATH", "").strip() or None
+if not QDRANT_LOCAL_PATH:
+    # Default to a local path in storage for desktop mode
+    QDRANT_LOCAL_PATH = os.path.join(STORAGE_DIR, "qdrant")
+    os.makedirs(QDRANT_LOCAL_PATH, exist_ok=True)
+
 QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
 QDRANT_API_KEY = os.getenv("QDRANT_API_KEY") or None
-# Must match the embedding size requested from Gemini (Matryoshka truncation) and Qdrant collections.
 QDRANT_VECTOR_SIZE = int(os.getenv("QDRANT_VECTOR_SIZE", "768"))
 
 
@@ -16,17 +47,7 @@ def _env_truthy(name: str) -> bool:
     return v in ("1", "true", "yes", "on")
 
 
-# If set, delete and recreate Qdrant collections when vector size != QDRANT_VECTOR_SIZE even if they contain points.
-# Use once to migrate (e.g. 384 -> 768); vectors are dropped until SQL-backed data is re-ingested.
 QDRANT_RECREATE_ON_VECTOR_MISMATCH = _env_truthy("QDRANT_RECREATE_ON_VECTOR_MISMATCH")
 
-# Gemini Developer API embeddings (same API key as chat).
-# Legacy models/embedding-001 is removed from v1beta; use gemini-embedding-001 (see ai_client_factory output_dimensionality).
-# https://ai.google.dev/gemini-api/docs/embeddings
 GEMINI_EMBEDDING_MODEL = (os.getenv("GEMINI_EMBEDDING_MODEL") or "gemini-embedding-001").strip()
-
-# Gemini model for AI coach (required by ChatGoogleGenerativeAI).
-# Default: gemini-3-flash-preview. If you get 404, list models for your key:
-#   curl "https://generativelanguage.googleapis.com/v1beta/models?key=YOUR_API_KEY"
-# then set GEMINI_MODEL to a model name (e.g. gemini-3-flash-preview, gemini-1.5-flash-8b).
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3-flash-preview")

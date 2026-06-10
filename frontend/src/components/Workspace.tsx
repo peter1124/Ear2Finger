@@ -399,13 +399,28 @@ export default function Workspace() {
     setLessonMenuOpen(null)
   }
 
-  const runImportInBackground = async (payload: { url: string; playlistId: number }) => {
+  const runImportInBackground = async (payload: {
+    type: 'youtube' | 'local'
+    url?: string
+    filePath?: string
+    subtitlePath?: string
+    playlistId: number
+  }) => {
     setIsImportInProgress(true)
     try {
-      const processResponse = await api.post('/api/youtube/process', {
-        url: payload.url
-      })
-      const videoId = processResponse.data.video_id
+      let videoId: number
+      if (payload.type === 'youtube') {
+        const processResponse = await api.post('/api/youtube/process', {
+          url: payload.url
+        })
+        videoId = processResponse.data.video_id
+      } else {
+        const processResponse = await api.post('/api/local/process', {
+          file_path: payload.filePath,
+          subtitle_path: payload.subtitlePath || null
+        })
+        videoId = processResponse.data.video_id
+      }
       await api.post(`/api/playlists/${payload.playlistId}/videos/${videoId}`)
       pushNotification('success', 'Import complete. Video added to playlist.')
       await fetchPlaylists()

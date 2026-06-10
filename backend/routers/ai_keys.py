@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from auth import get_current_user
 from database import User, UserConfig, get_db
 
-AI_PROVIDER_KEYS = {"gemini"}
+AI_PROVIDER_KEYS = {"gemini", "deepseek", "openai"}
 
 router = APIRouter()
 logger = logging.getLogger("ai_keys")
@@ -93,7 +93,7 @@ def _ensure_legacy_migrated(
 
 @router.get("/user/ai-keys", response_model=ListKeysResponse)
 async def list_ai_keys(
-    provider: str = Query(..., description="AI provider: gemini"),
+    provider: str = Query(..., description="AI provider: gemini, deepseek, openai"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
