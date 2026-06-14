@@ -27,7 +27,15 @@ logger = logging.getLogger("ai_client_factory")
 
 def _get_user_configs(db: Session, user_id: int) -> Dict[str, Optional[str]]:
     rows = db.query(UserConfig).filter(UserConfig.user_id == user_id).all()
-    return {r.key: r.value for r in rows}
+    res = {}
+    for r in rows:
+        val = r.value
+        if isinstance(val, str):
+            val = val.strip()
+            if not val:
+                val = None
+        res[r.key] = val
+    return res
 
 def _resolve_llm_provider(configs: Dict[str, Optional[str]]) -> str:
     return (configs.get("ai_provider") or "gemini").lower()

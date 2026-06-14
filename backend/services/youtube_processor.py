@@ -182,7 +182,7 @@ class YouTubeProcessor(BaseProcessor):
                 subtitles_data = None
                 is_bilibili = "bilibili.com" in youtube_url or "b23.tv" in youtube_url
                 sub_langs = 'en,zh-Hans,zh-Hant' if is_bilibili else 'en'
-                
+                creation_flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
                 with tempfile.TemporaryDirectory() as tmpdir:
                     try:
                         cmd_manual = self._yt_dlp_cli() + [
@@ -194,7 +194,7 @@ class YouTubeProcessor(BaseProcessor):
                             cmd_manual += ['--cookies-from-browser', working_browser]
                         cmd_manual += [youtube_url]
                         
-                        if subprocess.run(cmd_manual, capture_output=True, timeout=60).returncode == 0:
+                        if subprocess.run(cmd_manual, capture_output=True, timeout=60, creationflags=creation_flags).returncode == 0:
                             for lang in ['en', 'zh-Hans', 'zh-Hant', '']:
                                 for file in os.listdir(tmpdir):
                                     if file.endswith('.srt') and (not lang or f'.{lang}.srt' in file):
@@ -202,7 +202,7 @@ class YouTubeProcessor(BaseProcessor):
                                             subtitles_data = f.read()
                                         break
                                 if subtitles_data: break
-
+ 
                         if not subtitles_data:
                             cmd_auto = self._yt_dlp_cli() + [
                                 '--no-playlist', '--write-auto-subs', '--sub-lang', sub_langs,
@@ -213,7 +213,7 @@ class YouTubeProcessor(BaseProcessor):
                                 cmd_auto += ['--cookies-from-browser', working_browser]
                             cmd_auto += [youtube_url]
                             
-                            if subprocess.run(cmd_auto, capture_output=True, timeout=60).returncode == 0:
+                            if subprocess.run(cmd_auto, capture_output=True, timeout=60, creationflags=creation_flags).returncode == 0:
                                 for lang in ['en', 'zh-Hans', 'zh-Hant', '']:
                                     for file in os.listdir(tmpdir):
                                         if file.endswith('.srt') and (not lang or f'.{lang}.srt' in file):
@@ -223,10 +223,10 @@ class YouTubeProcessor(BaseProcessor):
                                     if subtitles_data: break
                     except Exception:
                         subtitles_data = self._extract_subtitles_via_api(ydl, info, sub_langs.split(','))
-
+ 
                 if not subtitles_data:
                     subtitles_data = self._extract_subtitles_via_api(ydl, info, sub_langs.split(','))
-
+ 
                 audio_downloaded = False
                 if not os.path.exists(audio_file_path):
                     try:
@@ -239,7 +239,7 @@ class YouTubeProcessor(BaseProcessor):
                             cmd += ['--cookies-from-browser', working_browser]
                         cmd += [youtube_url]
                         
-                        if subprocess.run(cmd, capture_output=True, timeout=300).returncode == 0:
+                        if subprocess.run(cmd, capture_output=True, timeout=300, creationflags=creation_flags).returncode == 0:
                             for file in os.listdir(self.audio_dir):
                                 if file.startswith(f'{video_id}_temp') and file.endswith('.mp3'):
                                     shutil.move(os.path.join(self.audio_dir, file), audio_file_path)

@@ -30,10 +30,13 @@ export default function Settings() {
   const [activeSection, setActiveSection] = useState<SettingsSection>('ai-api-key')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [apiKey, setApiKey] = useState('')
+  const [showApiKey, setShowApiKey] = useState(false)
   const [currentProvider, setCurrentProvider] = useState<AIProvider>('gemini')
   const [hasGeminiKey, setHasGeminiKey] = useState(false)
   const [hasOpenaiKey, setHasOpenaiKey] = useState(false)
   const [hasDeepseekKey, setHasDeepseekKey] = useState(false)
+  const [openaiApiBase, setOpenaiApiBase] = useState('')
+  const [deepseekApiBase, setDeepseekApiBase] = useState('')
   const [aiConfigError, setAiConfigError] = useState<string | null>(null)
   const [aiKeys, setAiKeys] = useState<AIKeyHint[]>([])
   const [aiKeysLoading, setAiKeysLoading] = useState(false)
@@ -84,6 +87,8 @@ export default function Settings() {
         setHasGeminiKey(Boolean(c.has_gemini_api_key))
         setHasOpenaiKey(Boolean(c.has_openai_api_key))
         setHasDeepseekKey(Boolean(c.has_deepseek_api_key))
+        setOpenaiApiBase(c.openai_api_base || '')
+        setDeepseekApiBase(c.deepseek_api_base || '')
       })
       .catch(() => {})
   }, [])
@@ -189,10 +194,17 @@ export default function Settings() {
     setAiConfigError(null)
     try {
       const trimmedKey = apiKey.trim()
-      const payload: SetConfigPayload = { ai_provider: currentProvider }
+      const payload: SetConfigPayload = {
+        ai_provider: currentProvider,
+        openai_api_base: openaiApiBase.trim() || null,
+        deepseek_api_base: deepseekApiBase.trim() || null,
+      }
 
       if (trimmedKey) {
-        await addAIKey(currentProvider, trimmedKey, true)
+        const baseUrl = currentProvider === 'openai'
+          ? openaiApiBase
+          : (currentProvider === 'deepseek' ? deepseekApiBase : undefined)
+        await addAIKey(currentProvider, trimmedKey, true, baseUrl)
       }
       
       await setConfig(payload)
@@ -203,6 +215,8 @@ export default function Settings() {
       setHasGeminiKey(Boolean(c.has_gemini_api_key))
       setHasOpenaiKey(Boolean(c.has_openai_api_key))
       setHasDeepseekKey(Boolean(c.has_deepseek_api_key))
+      setOpenaiApiBase(c.openai_api_base || '')
+      setDeepseekApiBase(c.deepseek_api_base || '')
       loadAIKeys(currentProvider)
       console.log('Settings saved')
     } catch (e: unknown) {
@@ -222,6 +236,8 @@ export default function Settings() {
       setHasGeminiKey(Boolean(c.has_gemini_api_key))
       setHasOpenaiKey(Boolean(c.has_openai_api_key))
       setHasDeepseekKey(Boolean(c.has_deepseek_api_key))
+      setOpenaiApiBase(c.openai_api_base || '')
+      setDeepseekApiBase(c.deepseek_api_base || '')
       loadAIKeys(currentProvider)
     } catch (e: unknown) {
       const ax = e as { response?: { data?: { detail?: string } } }
@@ -238,6 +254,8 @@ export default function Settings() {
       setHasGeminiKey(Boolean(c.has_gemini_api_key))
       setHasOpenaiKey(Boolean(c.has_openai_api_key))
       setHasDeepseekKey(Boolean(c.has_deepseek_api_key))
+      setOpenaiApiBase(c.openai_api_base || '')
+      setDeepseekApiBase(c.deepseek_api_base || '')
       loadAIKeys(currentProvider)
     } catch (e: unknown) {
       const ax = e as { response?: { data?: { detail?: string } } }
@@ -438,28 +456,67 @@ export default function Settings() {
                   </select>
                 </div>
 
+                {currentProvider === 'openai' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      API Base URL (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={openaiApiBase}
+                      onChange={(e) => setOpenaiApiBase(e.target.value)}
+                      placeholder="Default: https://api.openai.com/v1"
+                      className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    />
+                  </div>
+                )}
+
+                {currentProvider === 'deepseek' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      API Base URL (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={deepseekApiBase}
+                      onChange={(e) => setDeepseekApiBase(e.target.value)}
+                      placeholder="Default: https://api.deepseek.com"
+                      className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    />
+                  </div>
+                )}
 
 
-                {/* API Key Text Area */}
+
+                {/* API Key Input */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     API-KEY
                   </label>
-                  <textarea
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder={
-                      currentProvider === 'gemini' && hasGeminiKey
-                        ? 'Gemini key is configured. Paste a new key to replace it.'
-                        : currentProvider === 'openai' && hasOpenaiKey
-                        ? 'OpenAI key is configured. Paste a new key to replace it.'
-                        : currentProvider === 'deepseek' && hasDeepseekKey
-                        ? 'DeepSeek key is configured. Paste a new key to replace it.'
-                        : `Enter your ${currentProvider === 'gemini' ? 'Gemini' : currentProvider === 'openai' ? 'OpenAI' : 'DeepSeek'} API key here...`
-                    }
-                    rows={8}
-                    className="w-full border-2 border-gray-300 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
-                  />
+                  <div className="flex gap-2">
+                    <input
+                      type={showApiKey ? 'text' : 'password'}
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      placeholder={
+                        currentProvider === 'gemini' && hasGeminiKey
+                          ? 'Gemini key is configured. Paste a new key to replace it.'
+                          : currentProvider === 'openai' && hasOpenaiKey
+                          ? 'OpenAI key is configured. Paste a new key to replace it.'
+                          : currentProvider === 'deepseek' && hasDeepseekKey
+                          ? 'DeepSeek key is configured. Paste a new key to replace it.'
+                          : `Enter your ${currentProvider === 'gemini' ? 'Gemini' : currentProvider === 'openai' ? 'OpenAI' : 'DeepSeek'} API key here...`
+                      }
+                      className="flex-1 border-2 border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowApiKey(!showApiKey)}
+                      className="px-4 py-2 border-2 border-gray-300 rounded-lg text-sm text-gray-700 hover:bg-gray-50 transition-colors shrink-0"
+                    >
+                      {showApiKey ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
                   <div className="mt-3 flex justify-end">
                     <button
                       type="button"

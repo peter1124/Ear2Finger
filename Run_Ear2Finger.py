@@ -49,6 +49,7 @@ def port_is_open(host: str, port: int) -> bool:
 def port_preflight(host: str, port: int) -> None:
     """Refuse to start if the port is already claimed by another process."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             s.bind((host, port))
         except OSError:
@@ -92,7 +93,7 @@ def get_connection_count(port: int) -> int:
             if conn.laddr.port == port and conn.status == "ESTABLISHED":
                 count += 1
         return count
-    except (ImportError, psutil.AccessDenied, psutil.NoSuchProcess):
+    except Exception:
         return -1
 
 def drain_stderr(process, logger):

@@ -62,9 +62,13 @@ class LocalProcessor(BaseProcessor):
         audio_filename = f"local_{file_id}_{base_name}.mp3"
         audio_file_path = os.path.join(self.audio_dir, audio_filename)
 
+        ffmpeg_bin = shutil.which('ffmpeg') or 'ffmpeg'
+        ffprobe_bin = shutil.which('ffprobe') or 'ffprobe'
+        creation_flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+
         try:
-            cmd = ['ffmpeg', '-i', file_path, '-vn', '-ar', '44100', '-ac', '2', '-b:a', '192k', '-y', audio_file_path]
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            cmd = [ffmpeg_bin, '-i', file_path, '-vn', '-ar', '44100', '-ac', '2', '-b:a', '192k', '-y', audio_file_path]
+            result = subprocess.run(cmd, capture_output=True, text=True, creationflags=creation_flags)
             if result.returncode != 0:
                 raise Exception(f"FFmpeg failed: {result.stderr}")
         except FileNotFoundError:
@@ -73,8 +77,8 @@ class LocalProcessor(BaseProcessor):
         # Get duration using ffprobe
         duration = 0
         try:
-            cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', file_path]
-            duration = float(subprocess.check_output(cmd).decode().strip())
+            cmd = [ffprobe_bin, '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', file_path]
+            duration = float(subprocess.check_output(cmd, creationflags=creation_flags).decode().strip())
         except:
             pass
 

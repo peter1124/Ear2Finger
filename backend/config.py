@@ -7,15 +7,18 @@ import sys
 # Determine if we are running as a bundled executable or a script
 if getattr(sys, 'frozen', False):
     # PyInstaller bundled environment
-    BASE_DIR = os.path.dirname(sys.executable)
+    # Bundled resources/binaries are extracted to sys._MEIPASS
+    RESOURCE_DIR = getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+    # Persistent data resides next to the executable
+    PERSISTENT_DIR = os.path.dirname(sys.executable)
 else:
     # Standard Python environment
-    # Note: We assume this file is in 'backend/config.py'
-    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    RESOURCE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    PERSISTENT_DIR = RESOURCE_DIR
 
-# Define key directories
-BIN_DIR = os.path.join(BASE_DIR, "bin")
-STORAGE_DIR = os.path.join(BASE_DIR, "storage")
+BASE_DIR = PERSISTENT_DIR
+BIN_DIR = os.path.join(RESOURCE_DIR, "bin")
+STORAGE_DIR = os.path.join(PERSISTENT_DIR, "storage")
 DOWNLOAD_DIR = os.path.join(STORAGE_DIR, "downloads")
 AUDIO_DIR = os.path.join(STORAGE_DIR, "audio")
 

@@ -166,10 +166,103 @@ async def list_ai_keys(
     )
 
 
+def _validate_api_key(provider: str, key: str, base_url: Optional[str] = None) -> None:
+  """Validate the API key by instantiating the model and sending a test request."""
+  from config import GEMINI_MODEL
+  from langchain_google_genai import ChatGoogleGenerativeAI
+  from langchain_openai import ChatOpenAI
+
+  try:
+    if provider == "gemini":
+      llm = ChatGoogleGenerativeAI(google_api_key=key, model=GEMINI_MODEL)
+      llm.invoke("Hi")
+    elif provider == "openai":
+      llm = ChatOpenAI(
+        openai_api_key=key,
+        openai_api_base=base_url or "https://api.openai.com/v1",
+        model_name="gpt-3.5-turbo",
+        max_tokens=1,
+        request_timeout=10.0,
+        max_retries=0
+      )
+      llm.invoke("Hi")
+    elif provider == "deepseek":
+      llm = ChatOpenAI(
+        openai_api_key=key,
+        openai_api_base=base_url or "https://api.deepseek.com",
+        model_name="deepseek-chat",
+        max_tokens=1,
+        request_timeout=10.0,
+        max_retries=0
+      )
+      llm.invoke("Hi")
+  except Exception as e:
+    logger.warning(
+      "API Key validation failed for provider %s: %s",
+      provider,
+      str(e),
+      exc_info=True
+    )
+    err_msg = str(e).lower()
+    err_class = type(e).__name__.lower()
+
+    # Determine if it's an authentication or invalid key error
+    is_auth_error = (
+      "authentication" in err_class
+      or "unauthorized" in err_msg
+      or "401" in err_msg
+      or "invalid api key" in err_msg
+      or "api_key_invalid" in err_msg
+      or "invalid_api_key" in err_msg
+      or "permissiondenied" in err_class
+      or "unauthenticated" in err_class
+      or "permission_denied" in err_msg
+      or "403" in err_msg
+      or "forbidden" in err_msg
+      or "bad api key" in err_msg
+    )
+
+    # Determine if it's a network error / timeout / DNS / connection error
+    is_network_error = (
+      "timeout" in err_msg
+      or "timed out" in err_msg
+      or "connect" in err_msg
+      or "connection" in err_msg
+      or "dns" in err_msg
+      or "resolve" in err_msg
+      or "getaddrinfo" in err_msg
+      or "gai" in err_msg
+      or "socket" in err_msg
+      or "unreachable" in err_msg
+      or "refused" in err_msg
+      or "proxy" in err_msg
+      or "ssl" in err_msg
+      or "handshake" in err_msg
+      or "timeout" in err_class
+      or "connection" in err_class
+      or "dns" in err_class
+      or "socket" in err_class
+      or "ssl" in err_class
+    )
+
+    if is_network_error:
+      raise HTTPException(
+        status_code=400,
+        detail="网络连接超时，无法验证该密钥，请检查网络连接或代理/Base URL 设置。"
+      )
+    else:
+      # Default to authentication/invalid key error or raise it directly
+      raise HTTPException(
+        status_code=400,
+        detail="API Key 无效或验证失败，请检查密钥是否正确。"
+      )
+
+
 class AddAPIKeyBody(BaseModel):
   provider: str
   key: str
   make_active: bool = True
+  base_url: Optional[str] = None
 
 
 @router.post("/user/ai-keys", response_model=APIKeyHint)
@@ -186,6 +279,10 @@ async def add_ai_key(
   key = body.key.strip()
   if not key:
     raise HTTPException(status_code=400, detail="key must be a non-empty string")
+
+  # Perform validation first (raises HTTPException if invalid, preventing any database save)
+  base_url_stripped = body.base_url.strip() if body.base_url else None
+  _validate_api_key(provider_norm, key, base_url_stripped)
 
   canonical = _canonical_key(provider_norm)
 
@@ -215,7 +312,8 @@ async def add_ai_key(
     .filter(UserConfig.user_id == current_user.id, UserConfig.key == canonical)
     .first()
   )
-  if body.make_active or not (canonical_row and canonical_row.value):
+  make_active = body.make_active or not (canonical_row and canonical_row.value)
+  if make_active:
     if canonical_row:
       canonical_row.value = key
     else:
@@ -226,6 +324,24 @@ async def add_ai_key(
           value=key,
         )
       )
+    # Save the base_url configuration in UserConfig as well if provided
+    if base_url_stripped and provider_norm in ("openai", "deepseek"):
+      base_url_key = f"{provider_norm}_api_base"
+      base_url_row = (
+        db.query(UserConfig)
+        .filter(UserConfig.user_id == current_user.id, UserConfig.key == base_url_key)
+        .first()
+      )
+      if base_url_row:
+        base_url_row.value = base_url_stripped
+      else:
+        db.add(
+          UserConfig(
+            user_id=current_user.id,
+            key=base_url_key,
+            value=base_url_stripped,
+          )
+        )
 
   db.commit()
   db.refresh(managed_row)
@@ -243,7 +359,7 @@ async def add_ai_key(
     provider=provider_norm,
     last4=key[-4:] if key else "",
     created_at=managed_row.created_at,
-    is_active=True if body.make_active else False,
+    is_active=True if make_active else False,
   )
 
 

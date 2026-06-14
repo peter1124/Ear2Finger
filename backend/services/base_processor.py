@@ -156,34 +156,39 @@ class BaseProcessor:
 
     def parse_subtitles(self, subtitle_content: str) -> List[Dict]:
         """Parse subtitle content into segments."""
-        if not subtitle_content:
-            return []
+        try:
+            if not subtitle_content:
+                return []
 
-        stripped = subtitle_content.lstrip('\ufeff').strip()
-        if stripped.startswith('{'):
-            try:
-                data = json.loads(stripped)
-            except json.JSONDecodeError:
-                data = None
+            stripped = subtitle_content.lstrip('\ufeff').strip()
+            if stripped.startswith('{'):
+                try:
+                    data = json.loads(stripped)
+                except json.JSONDecodeError:
+                    data = None
+                else:
+                    if isinstance(data, dict) and 'events' in data:
+                        parsed = self._parse_youtube_json3(data)
+                        if parsed:
+                            return parsed
+
+            if stripped.startswith('<?xml') or stripped.startswith('<transcript'):
+                parsed = self._parse_youtube_timedtext_xml(stripped)
+                if parsed:
+                    return parsed
+
+            # Detect format
+            first_lines = subtitle_content.strip().split('\n')[:5]
+            is_srt = any(line.strip().isdigit() for line in first_lines if line.strip())
+
+            if is_srt:
+                return self._parse_srt_subtitles(subtitle_content)
             else:
-                if isinstance(data, dict) and 'events' in data:
-                    parsed = self._parse_youtube_json3(data)
-                    if parsed:
-                        return parsed
-
-        if stripped.startswith('<?xml') or stripped.startswith('<transcript'):
-            parsed = self._parse_youtube_timedtext_xml(stripped)
-            if parsed:
-                return parsed
-
-        # Detect format
-        first_lines = subtitle_content.strip().split('\n')[:5]
-        is_srt = any(line.strip().isdigit() for line in first_lines if line.strip())
-
-        if is_srt:
-            return self._parse_srt_subtitles(subtitle_content)
-        else:
-            return self._parse_vtt_subtitles(subtitle_content)
+                return self._parse_vtt_subtitles(subtitle_content)
+        except Exception as e:
+            import logging
+            logging.getLogger("base_processor").error(f"Error parsing subtitle content: {e}", exc_info=True)
+            return []
 
     def _parse_srt_subtitles(self, srt_content: str) -> List[Dict]:
         """Parse SRT subtitle content into timestamped segments"""

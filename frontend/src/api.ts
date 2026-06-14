@@ -211,11 +211,12 @@ export async function listAIKeys(provider: AIProvider): Promise<ListAIKeysRespon
   return data
 }
 
-export async function addAIKey(provider: AIProvider, key: string, makeActive = true): Promise<AIKeyHint> {
+export async function addAIKey(provider: AIProvider, key: string, makeActive = true, baseUrl?: string): Promise<AIKeyHint> {
   const { data } = await api.post<AIKeyHint>('/api/user/ai-keys', {
     provider,
     key,
     make_active: makeActive,
+    base_url: baseUrl,
   })
   return data
 }
