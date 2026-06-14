@@ -51,14 +51,30 @@ download_macos() {
   rm ffprobe.zip
   
   chmod +x "$BIN_DIR/ffmpeg" "$BIN_DIR/ffprobe"
+
+  if [ ! -f "$BIN_DIR/whisper-cli" ]; then
+    echo "Setting up whisper.cpp for macOS..."
+    if [ ! -d "storage/whisper.cpp" ]; then
+      git clone --depth 1 https://github.com/ggml-org/whisper.cpp.git storage/whisper.cpp
+    fi
+    cd storage/whisper.cpp
+    make build
+    cd ../..
+    cp storage/whisper.cpp/build/bin/whisper-cli "$BIN_DIR/"
+    cp storage/whisper.cpp/build/bin/main "$BIN_DIR/"
+    chmod +x "$BIN_DIR/whisper-cli" "$BIN_DIR/main"
+  else
+    echo "whisper-cli already exists in $BIN_DIR/"
+  fi
 }
 
 if [ "$OS" == "windows" ]; then
     download_win
+    echo "Tip for Windows: To enable offline audio transcription, please compile whisper.cpp using MSVC (cmake -B build && cmake --build build --config Release) and copy build/bin/Release/whisper-cli.exe to the bin/ directory."
 elif [ "$OS" == "macos" ]; then
     download_macos
 else
     echo "For Linux, please install ffmpeg via your package manager: sudo apt install ffmpeg"
 fi
 
-echo "FFmpeg binaries setup finished in $BIN_DIR/"
+echo "Binaries setup finished in $BIN_DIR/"

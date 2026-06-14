@@ -41,6 +41,18 @@ async def update_last_active(request, call_next):
 @app.on_event("startup")
 async def startup_event():
     init_db()
+    try:
+        import config
+        audio_dir = config.AUDIO_DIR
+        if os.path.isdir(audio_dir):
+            for filename in os.listdir(audio_dir):
+                if "_temp" in filename:
+                    file_path = os.path.join(audio_dir, filename)
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+    except Exception as e:
+        import logging
+        logging.getLogger("main").warning(f"Failed to clean up orphaned temporary audio files: {e}")
 
 # Configure CORS (Electron + Vite dev + packaged local server)
 _DEFAULT_CORS = [

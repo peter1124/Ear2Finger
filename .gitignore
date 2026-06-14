@@ -245,3 +245,6 @@ Thumbs.db
 bin/
 ffmpeg.zip
 
+# Ear2Finger Storage and Scratch
+storage/
+scratch/

@@ -1,4 +1,6 @@
 """User-scoped configuration (e.g. AI API keys, app preferences)."""
+import os
+import logging
 from typing import Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -8,6 +10,7 @@ from sqlalchemy.orm import Session
 from database import get_db, User, UserConfig
 from auth import get_current_user
 
+logger = logging.getLogger("user_config")
 router = APIRouter()
 
 VALID_AI_PROVIDERS = {"gemini", "deepseek", "openai"}
@@ -34,6 +37,7 @@ class AIConfigResponse(BaseModel):
     has_deepseek_api_key: bool = False
     openai_api_base: Optional[str] = None
     deepseek_api_base: Optional[str] = None
+    audio_quality: Optional[str] = "192"
 
 
 def _get_user_configs(db: Session, user_id: int) -> Dict[str, Optional[str]]:
@@ -65,6 +69,7 @@ async def get_config(
         has_deepseek_api_key=_has_provider_key(configs, "deepseek"),
         openai_api_base=configs.get("openai_api_base"),
         deepseek_api_base=configs.get("deepseek_api_base"),
+        audio_quality=configs.get("audio_quality") or "192",
     )
 
 
@@ -136,10 +141,23 @@ async def set_config(
     if "deepseek_model" in body:
         upsert_key("deepseek_model", body.get("deepseek_model"))
 
+    if "audio_quality" in body:
+        audio_q = body.get("audio_quality")
+        if audio_q is not None:
+            audio_q_str = str(audio_q).strip()
+            if audio_q_str == "192":
+                cores = os.cpu_count() or 1
+                if cores < 4:
+                    logger.warning(
+                        f"[USER_EXPERIENCE_LOG] User ID: {current_user.id} on Low-Performance device (Cores: {cores}) "
+                        f"explicitly overrode system recommendation and saved High-Fidelity (192kbps) audio quality."
+                    )
+            upsert_key("audio_quality", audio_q_str)
+
     for key, value in body.items():
         if key in {"ai_provider", "ai_vendor", "gemini_api_key", "openai_api_key",
                     "openai_api_base", "openai_model", "deepseek_api_key",
-                    "deepseek_api_base", "deepseek_model"} or key in SECRET_CONFIG_KEYS:
+                    "deepseek_api_base", "deepseek_model", "audio_quality"} or key in SECRET_CONFIG_KEYS:
             continue
         if not isinstance(key, str) or not key.strip():
             continue

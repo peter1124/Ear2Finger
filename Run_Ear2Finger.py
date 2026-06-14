@@ -84,11 +84,31 @@ def backend_healthy_info(host: str, port: int) -> tuple[bool, float]:
             conn.close()
 
 
-def get_connection_count(port: int) -> int:
+def get_connection_count(port: int, pid: int = None) -> int:
     """Count active ESTABLISHED TCP connections to the given port."""
     try:
         import psutil
         count = 0
+        if pid is not None:
+            try:
+                proc = psutil.Process(pid)
+                # Check backend process connections
+                for conn in proc.connections(kind="tcp"):
+                    if conn.laddr.port == port and conn.status == "ESTABLISHED":
+                        count += 1
+                # Also check child processes connections
+                for child in proc.children(recursive=True):
+                    try:
+                        for conn in child.connections(kind="tcp"):
+                            if conn.laddr.port == port and conn.status == "ESTABLISHED":
+                                count += 1
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+                return count
+            except (psutil.NoSuchProcess, psutil.AccessDenied, AttributeError):
+                pass
+
+        # Fallback to system-wide scan if process-specific count failed/is unavailable
         for conn in psutil.net_connections(kind="tcp"):
             if conn.laddr.port == port and conn.status == "ESTABLISHED":
                 count += 1
@@ -214,7 +234,7 @@ def main() -> None:
             else:
                 health_fails = 0
 
-            conn_count = get_connection_count(PORT)
+            conn_count = get_connection_count(PORT, backend_proc.pid)
             
             if conn_count >= 1:
                 browser_active = True

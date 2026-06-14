@@ -168,6 +168,7 @@ export interface AIConfig {
   has_deepseek_api_key: boolean
   openai_api_base: string | null
   deepseek_api_base: string | null
+  audio_quality: string | null
 }
 
 export interface SetConfigPayload {
@@ -177,8 +178,22 @@ export interface SetConfigPayload {
   deepseek_api_key?: string | null
   openai_api_base?: string | null
   deepseek_api_base?: string | null
+  audio_quality?: string | null
   // Allow future non-AI config keys without tightening this type too much
   [key: string]: string | number | boolean | null | undefined
+}
+
+export interface SystemPerformance {
+  cpu_cores: number
+  is_low_performance: boolean
+  recommended_quality: string
+  platform: string
+  machine: string
+}
+
+export async function getSystemPerformance(): Promise<SystemPerformance> {
+  const { data } = await api.get<SystemPerformance>('/api/system/performance')
+  return data
 }
 
 export async function getConfig(): Promise<AIConfig> {

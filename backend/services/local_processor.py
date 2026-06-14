@@ -30,7 +30,30 @@ class LocalProcessor(BaseProcessor):
         if not base_name:
             base_name = f"local_{file_id}"
 
-        # --- Validate subtitle availability BEFORE audio extraction ---
+        # --- Audio extraction (done first to support auto-transcription) ---
+        audio_filename = f"local_{file_id}_{base_name}.mp3"
+        audio_file_path = os.path.join(self.audio_dir, audio_filename)
+
+        # Look up user's audio_quality
+        from database import UserConfig
+        config_row = db.query(UserConfig).filter(UserConfig.user_id == user_id, UserConfig.key == "audio_quality").first()
+        audio_quality = config_row.value.strip() if (config_row and config_row.value) else "192"
+        if audio_quality not in ("64", "128", "192"):
+            audio_quality = "192"
+
+        ffmpeg_bin = shutil.which('ffmpeg') or 'ffmpeg'
+        ffprobe_bin = shutil.which('ffprobe') or 'ffprobe'
+        creation_flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+
+        try:
+            cmd = [ffmpeg_bin, '-i', file_path, '-vn', '-ar', '44100', '-ac', '2', '-b:a', f'{audio_quality}k', '-y', audio_file_path]
+            result = subprocess.run(cmd, capture_output=True, text=True, creationflags=creation_flags)
+            if result.returncode != 0:
+                raise Exception(f"FFmpeg failed: {result.stderr}")
+        except FileNotFoundError:
+            raise Exception("FFmpeg not found. Please ensure it is in the bin/ directory or system PATH.")
+
+        # --- Load or transcribe subtitles ---
         subtitles_data = None
         if subtitle_path and os.path.exists(subtitle_path):
             with open(subtitle_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -46,33 +69,36 @@ class LocalProcessor(BaseProcessor):
                     break
 
         if not subtitles_data:
-            raise ValueError("No subtitle file provided or found for local media. "
-                             "Place a .srt or .vtt file beside the media, or pass subtitle_path.")
+            # Auto-transcribe using Whisper
+            try:
+                from services.transcription_service import TranscriptionService
+                transcriber = TranscriptionService()
+                subtitles_data = transcriber.transcribe(audio_file_path)
+            except Exception as e:
+                if os.path.exists(audio_file_path):
+                    try:
+                        os.remove(audio_file_path)
+                    except OSError:
+                        pass
+                raise ValueError(f"No subtitle file was found, and auto-transcription failed: {e}")
 
         segments = self.parse_subtitles(subtitles_data)
         if not segments:
-            raise ValueError("Could not parse subtitles from local file. "
-                             "Ensure the subtitle file uses SRT or WebVTT format.")
+            if os.path.exists(audio_file_path):
+                try:
+                    os.remove(audio_file_path)
+                except OSError:
+                    pass
+            raise ValueError("Could not parse subtitles from local file or transcribed audio. Ensure the subtitle format is valid.")
 
         sentences = self.segment_into_sentences(segments)
         if not sentences:
+            if os.path.exists(audio_file_path):
+                try:
+                    os.remove(audio_file_path)
+                except OSError:
+                    pass
             raise ValueError("Could not segment subtitles into sentences.")
-
-        # --- Audio extraction (only after subtitle validated) ---
-        audio_filename = f"local_{file_id}_{base_name}.mp3"
-        audio_file_path = os.path.join(self.audio_dir, audio_filename)
-
-        ffmpeg_bin = shutil.which('ffmpeg') or 'ffmpeg'
-        ffprobe_bin = shutil.which('ffprobe') or 'ffprobe'
-        creation_flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
-
-        try:
-            cmd = [ffmpeg_bin, '-i', file_path, '-vn', '-ar', '44100', '-ac', '2', '-b:a', '192k', '-y', audio_file_path]
-            result = subprocess.run(cmd, capture_output=True, text=True, creationflags=creation_flags)
-            if result.returncode != 0:
-                raise Exception(f"FFmpeg failed: {result.stderr}")
-        except FileNotFoundError:
-            raise Exception("FFmpeg not found. Please ensure it is in the bin/ directory or system PATH.")
 
         # Get duration using ffprobe
         duration = 0

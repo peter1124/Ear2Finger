@@ -78,7 +78,7 @@ class ProcessVideoResponse(BaseModel):
 
 
 @router.post("/youtube/process", response_model=ProcessVideoResponse)
-async def process_youtube_video(
+def process_youtube_video(
     request: YouTubeUrlRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),

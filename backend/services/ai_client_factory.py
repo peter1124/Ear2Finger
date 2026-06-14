@@ -92,7 +92,25 @@ def _cached_openai_embeddings(api_key: str, base_url: Optional[str], model_name:
 def make_embeddings_for_user(user_id: int, db: Session) -> Embeddings:
     """Build an embeddings client for the user."""
     configs = _get_user_configs(db, user_id)
-    provider = configs.get("embeddings_provider") or "gemini" # Default embeddings to gemini for now
+    
+    provider = configs.get("embeddings_provider")
+    if not provider:
+        # Resolve dynamically based on what keys are actually provided
+        if configs.get("gemini_api_key") or configs.get("api_key"):
+            provider = "gemini"
+        elif configs.get("openai_api_key"):
+            provider = "openai"
+        elif configs.get("deepseek_api_key") and configs.get("openai_api_key"):
+            provider = "openai"
+        else:
+            provider = configs.get("ai_provider") or "gemini"
+
+    provider = provider.lower()
+
+    # Perform key-based fallback if default provider is missing key
+    if provider == "gemini" and not (configs.get("gemini_api_key") or configs.get("api_key")):
+        if configs.get("openai_api_key"):
+            provider = "openai"
 
     if provider == "gemini":
         api_key = configs.get("gemini_api_key") or configs.get("api_key")
@@ -109,6 +127,7 @@ def make_embeddings_for_user(user_id: int, db: Session) -> Embeddings:
         return _cached_openai_embeddings(api_key, base_url, model)
 
     elif provider == "deepseek":
+        # DeepSeek doesn't offer embeddings natively, so default to OpenAI endpoint if they configure deepseek embeddings
         api_key = configs.get("deepseek_api_key") or configs.get("openai_api_key")
         base_url = configs.get("deepseek_api_base") or configs.get("openai_api_base") or "https://api.deepseek.com"
         model = configs.get("deepseek_embeddings_model") or configs.get("openai_embeddings_model") or "text-embedding-3-small"

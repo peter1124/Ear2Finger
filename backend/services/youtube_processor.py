@@ -93,7 +93,7 @@ class YouTubeProcessor(BaseProcessor):
                     pass
 
     def _download_audio_via_python_ydl(
-        self, youtube_url: str, video_id: str, safe_title: str
+        self, youtube_url: str, video_id: str, safe_title: str, audio_quality: str = "192"
     ) -> Optional[str]:
         """Download audio using in-process yt_dlp."""
         temp_prefix = f'{video_id}_temp'
@@ -119,29 +119,32 @@ class YouTubeProcessor(BaseProcessor):
 
         self._cleanup_temp_audio(video_id)
         working_browser = self._get_working_browser_for_bilibili(youtube_url)
-        opts_mp3 = {
-            'quiet': True,
-            'no_warnings': True,
-            'noplaylist': True,
-            'format': 'bestaudio/best',
-            'outtmpl': temp_pattern,
-            'postprocessors': [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }],
-        }
-        if working_browser:
-            opts_mp3['cookiesfrombrowser'] = (working_browser,)
+        
+        # Bypass MP3 transcoding if quality is '64' (zero-transcode optimization)
+        if audio_quality != '64':
+            opts_mp3 = {
+                'quiet': True,
+                'no_warnings': True,
+                'noplaylist': True,
+                'format': 'bestaudio/best',
+                'outtmpl': temp_pattern,
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': audio_quality,
+                }],
+            }
+            if working_browser:
+                opts_mp3['cookiesfrombrowser'] = (working_browser,)
 
-        try:
-            with yt_dlp.YoutubeDL(opts_mp3) as ydl_dl:
-                ydl_dl.download([youtube_url])
-        except Exception:
-            pass
-        else:
-            p = pick_temp_file('.mp3')
-            if p: return finalize('.mp3', p)
+            try:
+                with yt_dlp.YoutubeDL(opts_mp3) as ydl_dl:
+                    ydl_dl.download([youtube_url])
+            except Exception:
+                pass
+            else:
+                p = pick_temp_file('.mp3')
+                if p: return finalize('.mp3', p)
 
         self._cleanup_temp_audio(video_id)
         opts_native = {
@@ -165,8 +168,20 @@ class YouTubeProcessor(BaseProcessor):
             if p: return finalize(suf, p)
         return None
 
-    def extract_video_info(self, youtube_url: str, video_id: str = None) -> Dict:
+    def extract_video_info(self, youtube_url: str, db: Session = None, user_id: int = None, video_id: str = None) -> Dict:
         """Extract video info, subtitles, and download audio."""
+        audio_quality = "192"
+        if db is not None and user_id is not None:
+            try:
+                from database import UserConfig
+                config_row = db.query(UserConfig).filter(UserConfig.user_id == user_id, UserConfig.key == "audio_quality").first()
+                if config_row and config_row.value:
+                    val = config_row.value.strip()
+                    if val in ("64", "128", "192"):
+                        audio_quality = val
+            except Exception:
+                pass
+
         working_browser = self._get_working_browser_for_bilibili(youtube_url)
         ydl_opts_info = {'quiet': True, 'no_warnings': True, 'noplaylist': True}
         if working_browser:
@@ -177,7 +192,16 @@ class YouTubeProcessor(BaseProcessor):
                 video_id = video_id or info.get('id', 'unknown')
                 video_title = info.get('title', 'Unknown')
                 safe_title = "".join(c for c in video_title if c.isalnum() or c in (' ', '-', '_')).rstrip()[:100]
-                audio_file_path = os.path.join(self.audio_dir, f"{video_id}_{safe_title}.mp3")
+                
+                # Check for existing audio file in different formats
+                audio_file_path = None
+                audio_downloaded = False
+                for ext in ('.mp3', '.m4a', '.webm', '.ogg', '.opus', '.mp4'):
+                    cand = os.path.join(self.audio_dir, f"{video_id}_{safe_title}{ext}")
+                    if os.path.exists(cand):
+                        audio_file_path = cand
+                        audio_downloaded = True
+                        break
 
                 subtitles_data = None
                 is_bilibili = "bilibili.com" in youtube_url or "b23.tv" in youtube_url
@@ -227,27 +251,40 @@ class YouTubeProcessor(BaseProcessor):
                 if not subtitles_data:
                     subtitles_data = self._extract_subtitles_via_api(ydl, info, sub_langs.split(','))
  
-                audio_downloaded = False
-                if not os.path.exists(audio_file_path):
+                if not audio_downloaded:
                     try:
-                        cmd = self._yt_dlp_cli() + [
-                            '--no-playlist', '-x', '--audio-format', 'mp3',
-                            '--output', os.path.join(self.audio_dir, f'{video_id}_temp.%(ext)s'),
-                            '--quiet'
-                        ]
+                        if audio_quality == '64':
+                            cmd = self._yt_dlp_cli() + [
+                                '--no-playlist', '--format', 'bestaudio[ext=m4a]/bestaudio',
+                                '--output', os.path.join(self.audio_dir, f'{video_id}_temp.%(ext)s'),
+                                '--quiet'
+                            ]
+                        else:
+                            cmd = self._yt_dlp_cli() + [
+                                '--no-playlist', '-x', '--audio-format', 'mp3',
+                                '--audio-quality', f'{audio_quality}K',
+                                '--output', os.path.join(self.audio_dir, f'{video_id}_temp.%(ext)s'),
+                                '--quiet'
+                            ]
                         if working_browser:
                             cmd += ['--cookies-from-browser', working_browser]
                         cmd += [youtube_url]
                         
                         if subprocess.run(cmd, capture_output=True, timeout=300, creationflags=creation_flags).returncode == 0:
                             for file in os.listdir(self.audio_dir):
-                                if file.startswith(f'{video_id}_temp') and file.endswith('.mp3'):
-                                    shutil.move(os.path.join(self.audio_dir, file), audio_file_path)
-                                    audio_downloaded = True
-                                    break
+                                if file.startswith(f'{video_id}_temp'):
+                                    ext = os.path.splitext(file)[1].lower()
+                                    if ext in ('.m4a', '.webm', '.mp3', '.ogg', '.opus', '.mp4'):
+                                        dest = os.path.join(self.audio_dir, f"{video_id}_{safe_title}{ext}")
+                                        if os.path.exists(dest):
+                                            os.remove(dest)
+                                        shutil.move(os.path.join(self.audio_dir, file), dest)
+                                        audio_file_path = dest
+                                        audio_downloaded = True
+                                        break
                     except Exception: pass
                     if not audio_downloaded:
-                        dl_path = self._download_audio_via_python_ydl(youtube_url, video_id, safe_title)
+                        dl_path = self._download_audio_via_python_ydl(youtube_url, video_id, safe_title, audio_quality)
                         if dl_path:
                             audio_file_path = dl_path
                             audio_downloaded = True
@@ -303,9 +340,21 @@ class YouTubeProcessor(BaseProcessor):
             existing_video.audio_file_path = None
             db.query(Sentence).filter(Sentence.video_id == existing_video.id).delete(synchronize_session=False)
             db.flush()
-            video_info = self.extract_video_info(youtube_url)
-            if not video_info.get('subtitles'): raise Exception("No subtitles available")
-            segments = self.parse_subtitles(video_info['subtitles'])
+            video_info = self.extract_video_info(youtube_url, db, user_id)
+            subtitles_data = video_info.get('subtitles')
+            if not subtitles_data:
+                audio_path = video_info.get('audio_file_path')
+                if audio_path and os.path.exists(audio_path):
+                    try:
+                        from services.transcription_service import TranscriptionService
+                        transcriber = TranscriptionService()
+                        subtitles_data = transcriber.transcribe(audio_path)
+                    except Exception as e:
+                        raise Exception(f"No subtitles available from URL, and auto-transcription failed: {e}")
+                else:
+                    raise Exception("No subtitles available, and audio download failed.")
+
+            segments = self.parse_subtitles(subtitles_data)
             if not segments: raise Exception("Could not parse subtitles")
             sentences = self.segment_into_sentences(segments)
             if not sentences: raise Exception("Could not segment sentences")
@@ -318,10 +367,22 @@ class YouTubeProcessor(BaseProcessor):
             from services.qdrant_client import delete_sentence_vectors_for_video
             delete_sentence_vectors_for_video(existing_video.id)
             return {'video_id': existing_video.id, 'title': existing_video.title, 'duration': existing_video.duration, 'sentence_count': len(sentences), 'message': 'Video processed successfully'}
+ 
+        video_info = self.extract_video_info(youtube_url, db, user_id)
+        subtitles_data = video_info.get('subtitles')
+        if not subtitles_data:
+            audio_path = video_info.get('audio_file_path')
+            if audio_path and os.path.exists(audio_path):
+                try:
+                    from services.transcription_service import TranscriptionService
+                    transcriber = TranscriptionService()
+                    subtitles_data = transcriber.transcribe(audio_path)
+                except Exception as e:
+                    raise Exception(f"No subtitles available from URL, and auto-transcription failed: {e}")
+            else:
+                raise Exception("No subtitles available, and audio download failed.")
 
-        video_info = self.extract_video_info(youtube_url)
-        if not video_info.get('subtitles'): raise Exception("No subtitles available")
-        segments = self.parse_subtitles(video_info['subtitles'])
+        segments = self.parse_subtitles(subtitles_data)
         if not segments: raise Exception("Could not parse subtitles")
         sentences = self.segment_into_sentences(segments)
         if not sentences: raise Exception("Could not segment sentences")

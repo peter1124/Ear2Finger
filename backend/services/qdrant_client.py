@@ -259,18 +259,20 @@ def close_qdrant_client() -> None:
 
 def _embed_texts(db: Session, user_id: int, texts: Sequence[str]) -> List[List[float]]:
     """
-    Embed one or more texts using the user's Gemini embedding API (same key as chat).
-
-    Embeddings are provider-agnostic and do not require an API key; the user_id
-    is used only for logging and future per-user overrides.
+    Embed one or more texts using the user's embedding API.
+    Gracefully logs a warning and returns an empty list if embedding fails.
     """
     if not texts:
         return []
 
-    embeddings = make_embeddings_for_user(user_id=user_id, db=db)
-    # embed_documents expects a list of strings and returns a list of vectors
-    vectors = embeddings.embed_documents(list(texts))
-    return [list(vec) for vec in vectors]
+    try:
+        embeddings = make_embeddings_for_user(user_id=user_id, db=db)
+        # embed_documents expects a list of strings and returns a list of vectors
+        vectors = embeddings.embed_documents(list(texts))
+        return [list(vec) for vec in vectors]
+    except Exception as e:
+        logger.warning("qdrant: embedding generation skipped (could not generate vectors): %s", e)
+        return []
 
 
 # -----------------------------------------------------------------------------

@@ -13,6 +13,8 @@ import {
   updateUser,
   deleteUser,
   fetchMe,
+  getSystemPerformance,
+  type SystemPerformance,
   type AdminUser,
   type SetConfigPayload,
   type AIKeyHint,
@@ -41,6 +43,8 @@ export default function Settings() {
   const [aiKeys, setAiKeys] = useState<AIKeyHint[]>([])
   const [aiKeysLoading, setAiKeysLoading] = useState(false)
   const [aiKeysError, setAiKeysError] = useState<string | null>(null)
+  const [audioQuality, setAudioQuality] = useState<string>('auto')
+  const [systemPerformance, setSystemPerformance] = useState<SystemPerformance | null>(null)
 
   // User management (superuser only)
   const [users, setUsers] = useState<AdminUser[]>([])
@@ -89,8 +93,17 @@ export default function Settings() {
         setHasDeepseekKey(Boolean(c.has_deepseek_api_key))
         setOpenaiApiBase(c.openai_api_base || '')
         setDeepseekApiBase(c.deepseek_api_base || '')
+        setAudioQuality(c.audio_quality || 'auto')
       })
       .catch(() => {})
+
+    getSystemPerformance()
+      .then((p) => {
+        setSystemPerformance(p)
+      })
+      .catch((err) => {
+        console.error('Failed to fetch system performance:', err)
+      })
   }, [])
 
   useEffect(() => {
@@ -198,6 +211,7 @@ export default function Settings() {
         ai_provider: currentProvider,
         openai_api_base: openaiApiBase.trim() || null,
         deepseek_api_base: deepseekApiBase.trim() || null,
+        audio_quality: audioQuality,
       }
 
       if (trimmedKey) {
@@ -217,6 +231,7 @@ export default function Settings() {
       setHasDeepseekKey(Boolean(c.has_deepseek_api_key))
       setOpenaiApiBase(c.openai_api_base || '')
       setDeepseekApiBase(c.deepseek_api_base || '')
+      setAudioQuality(c.audio_quality || 'auto')
       loadAIKeys(currentProvider)
       console.log('Settings saved')
     } catch (e: unknown) {
@@ -238,6 +253,7 @@ export default function Settings() {
       setHasDeepseekKey(Boolean(c.has_deepseek_api_key))
       setOpenaiApiBase(c.openai_api_base || '')
       setDeepseekApiBase(c.deepseek_api_base || '')
+      setAudioQuality(c.audio_quality || 'auto')
       loadAIKeys(currentProvider)
     } catch (e: unknown) {
       const ax = e as { response?: { data?: { detail?: string } } }
@@ -256,6 +272,7 @@ export default function Settings() {
       setHasDeepseekKey(Boolean(c.has_deepseek_api_key))
       setOpenaiApiBase(c.openai_api_base || '')
       setDeepseekApiBase(c.deepseek_api_base || '')
+      setAudioQuality(c.audio_quality || 'auto')
       loadAIKeys(currentProvider)
     } catch (e: unknown) {
       const ax = e as { response?: { data?: { detail?: string } } }
@@ -526,6 +543,36 @@ export default function Settings() {
                       ADD / SAVE
                     </button>
                   </div>
+                </div>
+
+                {/* Audio Quality Dropdown */}
+                <div className="pt-4 border-t border-gray-200">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Audio Download Quality / 音频质量
+                  </label>
+                  <select
+                    value={audioQuality}
+                    onChange={async (e) => {
+                      const val = e.target.value
+                      setAudioQuality(val)
+                      try {
+                        await setConfig({ audio_quality: val })
+                      } catch (err) {
+                        console.error('Failed to save audio quality', err)
+                      }
+                    }}
+                    className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  >
+                    <option value="auto">自动 (Auto) - Recommended based on PC spec</option>
+                    <option value="64">流畅 (Fast - 64 kbps) - Recommended for slow PCs</option>
+                    <option value="128">标准 (Standard - 128 kbps)</option>
+                    <option value="192">高保真 (High - 192 kbps)</option>
+                  </select>
+                  {systemPerformance?.is_low_performance && audioQuality === '192' && (
+                    <p className="mt-2 text-sm text-yellow-600 bg-yellow-50 px-3 py-2 rounded-lg border border-yellow-200">
+                      ⚠️ 系统检测到您当前的电脑配置较弱，选择高保真音质可能会导致导入视频时转码较慢。建议选择“流畅”或“标准”音质。
+                    </p>
+                  )}
                 </div>
 
                 {/* Saved keys list (all providers) */}

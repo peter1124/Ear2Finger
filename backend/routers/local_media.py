@@ -31,7 +31,7 @@ class ProcessLocalResponse(BaseModel):
     message: str
 
 @router.post("/local/process", response_model=ProcessLocalResponse)
-async def process_local_file(
+def process_local_file(
     request: LocalFileRequest,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
